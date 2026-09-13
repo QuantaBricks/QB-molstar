@@ -1,3 +1,143 @@
+# QB-molstar · QuantaBricks Easy Viewer
+
+A fork of [Mol\*](https://github.com/molstar/molstar) that adds a friendly, localized
+**`easy-viewer`** layer on top of the original Mol\* viewer.
+
+Mol\* core is **not modified**; everything new lives in `src/apps/easy-viewer/`
+(plus one registry line in `scripts/build.mjs`).
+
+## Origin & Credits
+
+- **Original project:** **Mol\*** (MolStar) — developed by David Sehnal, Alexander Rose and Mol\* contributors.
+  - Website: <https://molstar.org> · Source: <https://github.com/molstar/molstar> · License: MIT
+- **This fork:** **QuantaBricks** — adds the `easy-viewer` layer.
+
+## What's added (`easy-viewer`)
+
+| Area | Description |
+| --- | --- |
+| Default look | Cartoon + blue sequence gradient; ligands/water/ions colored by element |
+| Friendly panel | Sections: Style / Polymer / Ligand / Display / Label / Pharmacophore / Pocket / View |
+| Additive layers | Multiple representations per chain and per ligand (cartoon, ball-and-stick, surface, …), each with its own color/opacity/visibility |
+| Chain targeting | Highlight a chain; auto-switch target when selecting on the canvas |
+| Pharmacophore / pockets | 3D overlays from input data |
+| Residue labels | Click a ligand to label nearby residues; size/color/background adjustable |
+| i18n | 简体中文 / 繁體中文 / English / 日本語 / 한국어 / Español |
+| Render quality | High / Normal / Preview (surface polygon count, resolution, multisampling) |
+| Export | Image (PNG/JPEG/WebP), GLB geometry, state file (.molj/.molx) |
+| Classic UI | One-click switch to the native Mol\* Structure tools panel |
+
+## Build & Run
+
+```bash
+npm install
+
+# dev (watch) → http://localhost:1338/build/easy-viewer/index.html
+node ./scripts/build.mjs -a easy-viewer
+
+# production
+node ./scripts/build.mjs -a easy-viewer --prd
+```
+
+Output: `build/easy-viewer/` (`index.html`, `molstar.js` with global `molstar`, `molstar.css`).
+
+URL params: `?pdb=1hsg`, `?url=...&format=mmcif`, `?mvs-data=...&mvs-format=mvsj`,
+`?demo=multi-ligand`.
+
+## Quick start
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <link rel="stylesheet" href="./molstar.css" />
+  <style>html,body{margin:0;width:100%;height:100%}#app{position:absolute;inset:0}</style>
+</head>
+<body>
+  <div id="app"></div>
+  <script src="./molstar.js"></script>
+  <script>
+    molstar.EasyViewer.create('app').then(async (viewer) => {
+      await viewer.loadPdb('1hsg');
+      await viewer.present('polymer-and-ligand', 'sequence-id');
+    });
+  </script>
+</body>
+</html>
+```
+
+Module usage:
+
+```ts
+import { EasyViewer } from './src/apps/easy-viewer';
+
+const viewer = await EasyViewer.create('app');
+await viewer.loadInputs({
+  structure: { data: cifText, format: 'mmcif', label: 'my-protein' },
+  pharmacophore: [{ center: [12.3, 4.5, 6.7], radius: 1.5, type: 'Donor' }],
+  pockets: [{ pocket_id: 1, center: [10, 10, 10], score: 0.82, alpha_spheres: [[10, 10, 10]] }],
+});
+```
+
+## Multiple ligand inputs
+
+- Multiple ligands **inside one structure** are supported natively (managed by the *Ligand* section).
+- Multiple **separate ligand files / docking poses**: pass `structures: [...]`:
+
+```ts
+await viewer.loadInputs({
+  structures: [
+    { data: ligandPdb1, format: 'pdb', label: 'Ligand-1' },
+    { data: ligandPdb2, format: 'pdb', label: 'Ligand-2' },
+    { data: ligandPdb3, format: 'pdb', label: 'Ligand-3' },
+  ],
+});
+```
+
+Demo: `?demo=multi-ligand` or [`examples/multi-ligands.html`](./examples/multi-ligands.html).
+
+## Toggle visibility without reloading
+
+All visibility toggles update in place (no geometry rebuild, no reload):
+
+```ts
+viewer.setLigandsVisible(true);   viewer.areLigandsVisible();
+viewer.setChainVisible('A', false);
+viewer.setWaterVisible(false);
+viewer.setPocketsVisible(false);  viewer.setPocketVisible(1, true);
+viewer.setPharmacophoreVisible(false);
+Actions.setLayerVisible(plugin, 'A', 'molecular-surface', false);
+Actions.setLigandLayerVisible(plugin, 'ball-and-stick', false);
+```
+
+## API (highlights)
+
+`EasyViewer extends Viewer`, so `loadPdb`, `loadStructureFromData`, `loadStructureFromUrl`,
+`loadAllModelsOrAssemblyFromUrl`, `loadFiles`, `loadSnapshotFromUrl`, `loadMvsData`, … are available.
+
+```ts
+viewer.setStyle('polymer-and-ligand');
+viewer.setBaseStyle('cartoon' | '3d');
+viewer.setColorTheme('sequence-id');
+viewer.setChainPresentations([{ chain: 'A', layers: [{ type: 'cartoon', color: 'sequence-id' }] }]);
+viewer.addChainPresentation({ chain: 'B', layers: [{ type: 'ball-and-stick' }] });
+viewer.addLigandLayer('ball-and-stick');
+viewer.setHydrogens('polar');
+viewer.setPharmacophore(points, 1.2);
+viewer.setPockets(pockets);
+viewer.resetCamera(); viewer.setSpin(true); viewer.setBackground(color);
+viewer.screenshot('ultra-hd');
+```
+
+Full manual: [`MANUAL.md`](./MANUAL.md).
+
+---
+
+> The original Mol\* README follows.
+
+---
+
 [![License](http://img.shields.io/badge/license-MIT-blue.svg?style=flat)](./LICENSE)
 [![npm version](https://badge.fury.io/js/molstar.svg)](https://www.npmjs.com/package/molstar)
 [![Build](https://github.com/molstar/molstar/actions/workflows/node.yml/badge.svg)](https://github.com/molstar/molstar/actions/workflows/node.yml)
