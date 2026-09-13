@@ -14,6 +14,7 @@ import * as os from 'os';
 const Apps = [
     // Apps
     { kind: 'app', name: 'viewer', themes: ['light', 'dark', 'blue'] },
+    { kind: 'app', name: 'easy-viewer' },
     { kind: 'app', name: 'docking-viewer' },
     { kind: 'app', name: 'mesoscale-explorer' },
     { kind: 'app', name: 'mvs-stories', globalName: 'mvsStories', filename: 'mvs-stories.js' },
