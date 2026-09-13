@@ -104,7 +104,10 @@ export interface StructureInput {
 
 /** 通用输入集合，可一次喂给 viewer */
 export interface EasyViewerInputs {
+    /** 单个结构（可含多个配体） */
     structure?: StructureInput;
+    /** 多个结构（如多个配体文件 / 多个对接 pose），会依次加载 */
+    structures?: StructureInput[];
     pharmacophore?: PharmacophorePoint[];
     pockets?: Pocket[];
 }

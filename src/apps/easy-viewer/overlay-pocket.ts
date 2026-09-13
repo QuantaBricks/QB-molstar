@@ -21,6 +21,8 @@ export interface PocketHandle {
     dispose(): Promise<void>;
     /** 显示/隐藏某个口袋 */
     setPocketVisible(id: number | string, visible: boolean): void;
+    /** 显示/隐藏全部口袋（不重建） */
+    setAllVisible(visible: boolean): void;
     /** 是否已加载口袋 */
     readonly isEmpty: boolean;
 }
@@ -54,6 +56,7 @@ export async function showPockets(plugin: PluginContext, pockets: Pocket[]): Pro
         isEmpty: true,
         async dispose() { /* nothing */ },
         setPocketVisible() { /* nothing */ },
+        setAllVisible() { /* nothing */ },
     };
 
     if (!pockets || pockets.length === 0) return emptyHandle;
@@ -104,6 +107,9 @@ export async function showPockets(plugin: PluginContext, pockets: Pocket[]): Pro
         setPocketVisible(id, visible) {
             const ref = refs.get(id);
             if (ref) plugin.state.data.updateCellState(ref, { isHidden: !visible });
+        },
+        setAllVisible(visible) {
+            refs.forEach(ref => plugin.state.data.updateCellState(ref, { isHidden: !visible }));
         },
     };
 }

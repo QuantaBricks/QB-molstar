@@ -15,9 +15,42 @@
         <div id="app"></div>
         <script type="text/javascript" src="./molstar.js"></script>
         <script type="text/javascript">
+            // 生成一个六元环配体的 PDB（HETATM），用于演示多配体输入
+            function ringPdb(resName, cx, cy, cz, r) {
+                function hetatm(serial, name, x, y, z) {
+                    return 'HETATM' + String(serial).padStart(5) + ' ' + name.padEnd(4) + ' ' + resName + ' A' + String(1).padStart(4) + '    '
+                        + x.toFixed(3).padStart(8) + y.toFixed(3).padStart(8) + z.toFixed(3).padStart(8)
+                        + '  1.00  0.00          ' + name[0].padStart(2);
+                }
+                var lines = [];
+                for (var i = 0; i < 6; i++) {
+                    var a = i / 6 * Math.PI * 2;
+                    lines.push(hetatm(i + 1, 'C' + (i + 1), cx + r * Math.cos(a), cy + r * Math.sin(a), cz));
+                }
+                lines.push('END');
+                return lines.join('\n');
+            }
+
+            // 演示：1hsg（含一个配体）+ 3 个独立配体文件
+            function runMultiLigandDemo(viewer) {
+                return viewer.loadPdb('1hsg').then(function () {
+                    return viewer.loadInputs({
+                        structures: [
+                            { data: ringPdb('L01', 4, 2, 2, 1.4), format: 'pdb', label: 'Ligand-1' },
+                            { data: ringPdb('L02', 8, 2, 2, 1.4), format: 'pdb', label: 'Ligand-2' },
+                            { data: ringPdb('L03', 12, 2, 2, 1.4), format: 'pdb', label: 'Ligand-3' },
+                        ],
+                    });
+                });
+            }
+
             molstar.EasyViewer.create('app').then(function (viewer) {
                 window.easyViewer = viewer;
                 var params = new URLSearchParams(window.location.search || '');
+
+                var demo = params.get('demo');
+                if (demo === 'multi-ligand') { runMultiLigandDemo(viewer); return; }
+
                 var pdb = params.get('pdb');
                 if (pdb) viewer.loadPdb(pdb);
                 var url = params.get('url');

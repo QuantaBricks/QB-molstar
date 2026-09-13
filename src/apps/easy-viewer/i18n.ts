@@ -85,6 +85,9 @@ interface Dict {
     transparent: string;
     axes: string;
     bgColor: string;
+    about: string;
+    aboutOriginal: string;
+    aboutModified: string;
     copy: string;
     download: string;
     exportGlb: string;
@@ -159,6 +162,9 @@ const zh: Dict = {
     transparent: '透明背景',
     axes: '坐标轴',
     bgColor: '背景颜色',
+    about: '关于',
+    aboutOriginal: '原版开发',
+    aboutModified: '本版本修改',
     copy: '复制',
     download: '下载',
     exportGlb: '导出 GLB',
@@ -252,6 +258,9 @@ const en: Dict = {
     transparent: 'Transparent',
     axes: 'Axes',
     bgColor: 'Background',
+    about: 'About',
+    aboutOriginal: 'Original project',
+    aboutModified: 'Modifications',
     copy: 'Copy',
     download: 'Download',
     exportGlb: 'Export GLB',
@@ -345,6 +354,9 @@ const ja: Dict = {
     transparent: '透過背景',
     axes: '軸',
     bgColor: '背景色',
+    about: '情報',
+    aboutOriginal: 'オリジナル',
+    aboutModified: '改変',
     copy: 'コピー',
     download: 'ダウンロード',
     exportGlb: 'GLB を書き出す',
@@ -438,6 +450,9 @@ const zhHant: Dict = {
     transparent: '透明背景',
     axes: '座標軸',
     bgColor: '背景顏色',
+    about: '關於',
+    aboutOriginal: '原版專案',
+    aboutModified: '本版本修改',
     copy: '複製',
     download: '下載',
     exportGlb: '匯出 GLB',
@@ -531,6 +546,9 @@ const ko: Dict = {
     transparent: '투명 배경',
     axes: '축',
     bgColor: '배경색',
+    about: '정보',
+    aboutOriginal: '원본 프로젝트',
+    aboutModified: '수정 사항',
     copy: '복사',
     download: '다운로드',
     exportGlb: 'GLB 내보내기',
@@ -624,6 +642,9 @@ const es: Dict = {
     transparent: 'Fondo transparente',
     axes: 'Ejes',
     bgColor: 'Fondo',
+    about: 'Acerca de',
+    aboutOriginal: 'Proyecto original',
+    aboutModified: 'Modificaciones',
     copy: 'Copiar',
     download: 'Descargar',
     exportGlb: 'Exportar GLB',

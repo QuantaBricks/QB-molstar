@@ -133,6 +133,7 @@ export function EasyViewport() {
 
 /** 视口控件：默认控件 + 仅传统界面下保留一个「简易界面」返回按钮 */
 const SeqSvg = () => <svg viewBox='0 0 24 24'><text x='12' y='16.5' textAnchor='middle' fontSize='8.5' fontWeight='700' fill='currentColor' fontFamily='Inter, sans-serif'>SEQ</text></svg>;
+const InfoSvg = () => <svg viewBox='0 0 24 24'><path fill='currentColor' d='M12 2a10 10 0 100 20 10 10 0 000-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z' /></svg>;
 
 /** 自定义导出面板：已翻译，去掉 Illumination / State */
 function EasyScreenshotPanel() {
@@ -213,6 +214,7 @@ export function EasyViewportControls() {
     const [sequenceVisible, setSequenceVisible] = React.useState(() => Actions.isSequenceVisible(plugin));
     const [selectionMode, setSelectionMode] = React.useState(() => plugin.selectionMode);
     const [printExpanded, setPrintExpanded] = React.useState(false);
+    const [infoOpen, setInfoOpen] = React.useState(false);
     const targetedChain = React.useSyncExternalStore(Actions.subscribeTargetedChain, Actions.getTargetedChain);
 
     React.useEffect(() => {
@@ -239,12 +241,32 @@ export function EasyViewportControls() {
             {button(<SeqSvg />, I18n.t('sequence'), () => Actions.setSequenceVisible(plugin, !sequenceVisible), sequenceVisible)}
             {button(<SelectionModeSvg />, I18n.t('selection'), () => { plugin.selectionMode = !plugin.selectionMode; }, selectionMode)}
             {button(<AutorenewSvg />, I18n.t('reset'), () => Actions.resetCamera(plugin))}
+            {button(<InfoSvg />, I18n.t('about'), () => setInfoOpen(v => !v), infoOpen)}
             {classic && <button className='easy-vp-btn easy-vp-btn-text'
                 title={locale === 'zh' ? '切换回简易界面' : locale === 'ja' ? 'シンプルUIに戻る' : 'Switch back to simple UI'}
                 onClick={() => Actions.toggleClassicMode(plugin)}>{I18n.t('simple')}</button>}
         </div>}
         {targetedChain && <button className='easy-cancel-selection'
             onClick={() => Actions.setTargetedChain(plugin, null)}>{I18n.t('cancelSelection')}</button>}
+        {infoOpen && <div className='easy-print-panel'>
+            <div className='easy-print-header'>
+                <b>{I18n.t('about')}</b>
+                <button className='easy-print-close' onClick={() => setInfoOpen(false)} title='×'>×</button>
+            </div>
+            <div className='easy-print-body easy-about'>
+                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>Mol*</div>
+                <div style={{ marginBottom: 8, lineHeight: 1.5 }}>
+                    {I18n.t('aboutOriginal')}: David Sehnal, Alexander Rose &amp; Mol* contributors<br />
+                    <a href='https://molstar.org' target='_blank' rel='noreferrer'>molstar.org</a>
+                    {' · '}
+                    <a href='https://github.com/molstar/molstar' target='_blank' rel='noreferrer'>github.com/molstar/molstar</a>
+                </div>
+                <div style={{ fontWeight: 700, fontSize: 16, marginBottom: 4 }}>QuantaBricks</div>
+                <div style={{ lineHeight: 1.5 }}>
+                    {I18n.t('aboutModified')}: easy-viewer (localized UI, style/color controls, representation layers, labels, export).
+                </div>
+            </div>
+        </div>}
         {printExpanded && <div className='easy-print-panel'>
             <div className='easy-print-header'>
                 <b>{I18n.t('exportImage')}</b>

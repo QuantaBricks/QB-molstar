@@ -408,12 +408,26 @@ export function setLayerVisible(plugin: PluginContext, chain: string, type: Easy
     if (refs.length > 0) plugin.managers.structure.hierarchy.toggleVisibility(refs, visible ? 'show' : 'hide');
 }
 
+/** 所有配体组件的 ref（默认 preset 的 + 手动创建的） */
+function ligandComponentRefs(plugin: PluginContext) {
+    const refs: any[] = [];
+    for (const s of getStructures(plugin)) {
+        for (const c of s.components) {
+            const tags = c.cell.transform.tags ?? [];
+            if (tags.includes(EasyLigandTag) || tags.includes('structure-component-static-ligand')) refs.push(c);
+        }
+    }
+    return refs;
+}
+
 export async function showLigands(plugin: PluginContext) {
+    const existing = ligandComponentRefs(plugin);
+    if (existing.length > 0) {
+        plugin.managers.structure.hierarchy.toggleVisibility(existing, 'show');
+        return;
+    }
     await plugin.dataTransaction(async () => {
         for (const s of getStructures(plugin)) {
-            const existing = s.components.filter(c => c.cell.transform.tags?.includes(EasyLigandTag));
-            if (existing.length > 0) continue;
-
             const ligand = await plugin.builders.structure.tryCreateComponentStatic(s.cell, 'ligand', { label: 'Ligands', tags: [EasyLigandTag] });
             if (ligand) {
                 await plugin.builders.structure.representation.addRepresentation(ligand, {
@@ -426,13 +440,30 @@ export async function showLigands(plugin: PluginContext) {
     }, { canUndo: 'Show Ligands' });
 }
 
-export async function hideLigands(plugin: PluginContext) {
-    await plugin.dataTransaction(async () => {
-        for (const s of getStructures(plugin)) {
-            const existing = s.components.filter(c => c.cell.transform.tags?.includes(EasyLigandTag));
-            if (existing.length > 0) await plugin.managers.structure.hierarchy.remove(existing, true);
+/** 显示/隐藏配体（不重建） */
+export function setLigandsVisible(plugin: PluginContext, visible: boolean) {
+    const refs = ligandComponentRefs(plugin);
+    if (refs.length > 0) plugin.managers.structure.hierarchy.toggleVisibility(refs, visible ? 'show' : 'hide');
+}
+
+export function hideLigands(plugin: PluginContext) {
+    setLigandsVisible(plugin, false);
+}
+
+export function areLigandsVisible(plugin: PluginContext) {
+    return ligandComponentRefs(plugin).some(c => !c.cell.state.isHidden);
+}
+
+/** 显示/隐藏某条链（不重建） */
+export function setChainVisible(plugin: PluginContext, chain: string, visible: boolean) {
+    const refs: any[] = [];
+    for (const s of getStructures(plugin)) {
+        for (const c of s.components) {
+            const tags = c.cell.transform.tags ?? [];
+            if (tags.some(t => t === `structure-component-qb-chain-${chain}`)) refs.push(c);
         }
-    }, { canUndo: 'Hide Ligands' });
+    }
+    if (refs.length > 0) plugin.managers.structure.hierarchy.toggleVisibility(refs, visible ? 'show' : 'hide');
 }
 
 export function setWaterVisible(plugin: PluginContext, visible: boolean) {
@@ -901,6 +932,11 @@ export function getPharmacophorePoints(plugin: PluginContext) {
     return overlayState(plugin).pharmacophorePoints;
 }
 
+/** 显示/隐藏药效团（不重建） */
+export function setPharmacophoreVisible(plugin: PluginContext, visible: boolean) {
+    overlayState(plugin).pharmacophore?.setVisible(visible);
+}
+
 export async function setPockets(plugin: PluginContext, pockets: Pocket[]) {
     const s = overlayState(plugin);
     await s.pockets?.dispose();
@@ -922,6 +958,14 @@ export function setPocketVisible(plugin: PluginContext, id: number | string, vis
     if (visible) s.hiddenPockets.delete(id);
     else s.hiddenPockets.add(id);
     s.pockets?.setPocketVisible(id, visible);
+}
+
+/** 显示/隐藏全部口袋（不重建） */
+export function setPocketsVisible(plugin: PluginContext, visible: boolean) {
+    const s = overlayState(plugin);
+    s.hiddenPockets.clear();
+    if (!visible) for (const p of s.pocketData) s.hiddenPockets.add(p.pocket_id);
+    s.pockets?.setAllVisible(visible);
 }
 
 export function getPocketData(plugin: PluginContext) {

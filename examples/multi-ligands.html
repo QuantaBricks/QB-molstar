@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>QB Easy Viewer · 多配体示例</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        html, body { width: 100%; height: 100%; overflow: hidden; }
+        #app { position: absolute; inset: 0; }
+        #hint {
+            position: absolute; left: 12px; bottom: 12px; z-index: 50;
+            font: 13px/1.5 system-ui, sans-serif; color: #374151;
+            background: rgba(255, 255, 255, 0.9); border: 1px solid #d1d5db;
+            border-radius: 8px; padding: 8px 12px; max-width: 380px;
+        }
+    </style>
+    <!-- 指向构建产物；也可换成 CDN / npm 打包后的路径 -->
+    <link rel="stylesheet" href="../build/easy-viewer/molstar.css" />
+</head>
+<body>
+    <div id="app"></div>
+    <div id="hint">
+        演示：1HSG 蛋白（自带一个配体）+ 通过 <code>loadInputs({ structures: [...] })</code>
+        额外加载的 3 个独立配体文件。打开左侧「Setting → 配体样式」可分别控制。
+    </div>
+
+    <script src="../build/easy-viewer/molstar.js"></script>
+    <script>
+        // ---- 生成一个六元环配体的 PDB（HETATM）----
+        function ringPdb(resName, cx, cy, cz, r) {
+            function hetatm(serial, name, x, y, z) {
+                return 'HETATM' + String(serial).padStart(5) + ' ' + name.padEnd(4) + ' ' + resName + ' A' + String(1).padStart(4) + '    '
+                    + x.toFixed(3).padStart(8) + y.toFixed(3).padStart(8) + z.toFixed(3).padStart(8)
+                    + '  1.00  0.00          ' + name[0].padStart(2);
+            }
+            const lines = [];
+            for (let i = 0; i < 6; i++) {
+                const a = i / 6 * Math.PI * 2;
+                lines.push(hetatm(i + 1, 'C' + (i + 1), cx + r * Math.cos(a), cy + r * Math.sin(a), cz));
+            }
+            lines.push('END');
+            return lines.join('\n');
+        }
+
+        (async () => {
+            const viewer = await molstar.EasyViewer.create('app');
+
+            // 1) 蛋白（含其自带配体）
+            await viewer.loadPdb('1hsg');
+
+            // 2) 额外加载多个独立配体文件（会各自成为独立结构）
+            await viewer.loadInputs({
+                structures: [
+                    { data: ringPdb('L01', 4, 2, 2, 1.4), format: 'pdb', label: 'Ligand-1' },
+                    { data: ringPdb('L02', 8, 2, 2, 1.4), format: 'pdb', label: 'Ligand-2' },
+                    { data: ringPdb('L03', 12, 2, 2, 1.4), format: 'pdb', label: 'Ligand-3' },
+                ],
+            });
+
+            // 3) 打开简易面板
+            // （也可以从代码里直接控制）
+            viewer.setLigandsVisible(true);
+        })();
+    </script>
+</body>
+</html>

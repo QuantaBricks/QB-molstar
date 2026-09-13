@@ -69,6 +69,13 @@ export class EasyViewer extends Viewer {
     showLigands() { return Actions.showLigands(this.plugin); }
     hideLigands() { return Actions.hideLigands(this.plugin); }
 
+    /** 显示/隐藏配体（不重建） */
+    setLigandsVisible(visible: boolean) { Actions.setLigandsVisible(this.plugin, visible); }
+    areLigandsVisible() { return Actions.areLigandsVisible(this.plugin); }
+
+    /** 显示/隐藏某条链（不重建） */
+    setChainVisible(chain: string, visible: boolean) { Actions.setChainVisible(this.plugin, chain, visible); }
+
     /** 追加一个配体表示（球棍/填充/分子表面/...），增量叠加 */
     addLigandLayer(type: Actions.EasyRepresentationType) { return Actions.addLigandLayer(this.plugin, type); }
     /** 当前配体上的表示层 */
@@ -76,8 +83,7 @@ export class EasyViewer extends Viewer {
     hasLigands() { return Actions.hasLigands(this.plugin); }
 
     async toggleLigands() {
-        const shown = Actions.getStructures(this.plugin)
-            .some(s => s.components.some(c => c.cell.transform.tags?.includes(Actions.EasyLigandTag)));
+        const shown = Actions.areLigandsVisible(this.plugin);
         await (shown ? this.hideLigands() : this.showLigands());
         return !shown;
     }
@@ -89,9 +95,13 @@ export class EasyViewer extends Viewer {
 
     setPharmacophore(points: PharmacophorePoint[], scale = 1) { return Actions.setPharmacophore(this.plugin, points, scale); }
     clearPharmacophore() { Actions.clearPharmacophore(this.plugin); }
+    /** 显示/隐藏药效团（不重建） */
+    setPharmacophoreVisible(visible: boolean) { Actions.setPharmacophoreVisible(this.plugin, visible); }
     setPockets(pockets: Pocket[]) { return Actions.setPockets(this.plugin, pockets); }
     clearPockets() { return Actions.clearPockets(this.plugin); }
     setPocketVisible(id: number | string, visible: boolean) { Actions.setPocketVisible(this.plugin, id, visible); }
+    /** 显示/隐藏全部口袋（不重建） */
+    setPocketsVisible(visible: boolean) { Actions.setPocketsVisible(this.plugin, visible); }
 
     // ---- 视图 ----
 
@@ -112,11 +122,11 @@ export class EasyViewer extends Viewer {
         if (color) await this.setColorTheme(color, opts);
     }
 
-    /** 一次喂入结构 + 药效团 + 口袋 */
+    /** 一次喂入结构 + 药效团 + 口袋（支持多结构/多配体） */
     async loadInputs(inputs: EasyViewerInputs) {
-        if (inputs.structure) {
-            const { data, format, label } = inputs.structure;
-            await this.loadStructureFromData(data as any, format as any, { dataLabel: label });
+        const list = [...(inputs.structures ?? []), ...(inputs.structure ? [inputs.structure] : [])];
+        for (const s of list) {
+            await this.loadStructureFromData(s.data as any, s.format as any, { dataLabel: s.label });
         }
         if (inputs.pharmacophore) await this.setPharmacophore(inputs.pharmacophore);
         if (inputs.pockets) await this.setPockets(inputs.pockets);

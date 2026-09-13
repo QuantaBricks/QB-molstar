@@ -23,6 +23,8 @@ type PharmacophoreRepr = ReturnType<typeof ShapeRepresentation>;
 export interface PharmacophoreHandle {
     /** 移除药效团渲染 */
     dispose(): void;
+    /** 显示/隐藏（不重建） */
+    setVisible(visible: boolean): void;
 }
 
 async function createMesh(plugin: PluginContext, points: PharmacophorePoint[], color: number, scale: number, label: string) {
@@ -79,6 +81,9 @@ export async function showPharmacophore(plugin: PluginContext, points: Pharmacop
     }
 
     return {
+        setVisible(visible: boolean) {
+            for (const repr of reprs) repr.setState({ visible });
+        },
         dispose() {
             for (const repr of reprs) {
                 plugin.canvas3d?.remove(repr);
