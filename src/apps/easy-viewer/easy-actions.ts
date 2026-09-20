@@ -101,6 +101,19 @@ export function getStructureLabel(plugin: PluginContext, index: number): string 
         || `#${index + 1}`;
 }
 
+/** 隐藏/显示某个结构 */
+export function setStructureVisible(plugin: PluginContext, index: number, visible: boolean) {
+    const s = getAllStructures(plugin)[index];
+    if (s) plugin.managers.structure.hierarchy.toggleVisibility([s], visible ? 'show' : 'hide');
+}
+
+export function isStructureVisible(plugin: PluginContext, index: number): boolean {
+    const s = getAllStructures(plugin)[index];
+    if (!s) return true;
+    const cell = plugin.state.data.cells.get(s.cell.transform.ref);
+    return !(cell?.state.isHidden ?? s.cell.state.isHidden);
+}
+
 /** 当前要修改的结构：只有一个时返回它，多个时只返回选中的那个 */
 export function getStructures(plugin: PluginContext) {
     const all = getAllStructures(plugin);
@@ -336,10 +349,10 @@ async function addChainPresentationFor(plugin: PluginContext, structure: ReturnT
     for (const layer of layers) {
         const color = layer.color ?? 'chain-id';
         const isSurface = layer.type === 'molecular-surface' || layer.type === 'gaussian-surface';
-        // 表面精度随渲染质量（拖动时隐藏表面，交互仍流畅）
+        // 表面精度随渲染质量（拖动时隐藏表面，交互仍流畅）；alpha 对所有类型生效（含 Ribbon）
         const typeParams = isSurface
             ? { quality: currentSurfaceQuality(), ...(layer.alpha !== undefined ? { alpha: layer.alpha } : {}) }
-            : undefined;
+            : (layer.alpha !== undefined ? { alpha: layer.alpha } : undefined);
 
         const repr = await plugin.builders.structure.representation.addRepresentation(comp, {
             type: layer.type as any,
@@ -631,10 +644,10 @@ export function subscribeTargetedChain(fn: () => void) {
     return () => { targetedChainListeners.delete(fn); };
 }
 
-/** 设置「目标链」：高亮该链并通知 UI（null = 全部链） */
-export function setTargetedChain(plugin: PluginContext, chain: string | null) {
+/** 设置「目标链」：通知 UI（null = 全部链）。highlight 为 true 时同时高亮整条链。 */
+export function setTargetedChain(plugin: PluginContext, chain: string | null, highlight = true) {
     targetedChain = chain;
-    highlightChain(plugin, chain);
+    if (highlight) highlightChain(plugin, chain);
     for (const fn of targetedChainListeners) fn();
 }
 
@@ -952,6 +965,17 @@ export function exportGlb(plugin: PluginContext) {
 
 export function setBackground(plugin: PluginContext, color: Color) {
     plugin.canvas3d?.setProps({ renderer: { backgroundColor: color } });
+}
+
+/** 光照强度（主光源 intensity） */
+export function getLightIntensity(plugin: PluginContext): number {
+    return plugin.canvas3d?.props.renderer.light?.[0]?.intensity ?? 0.6;
+}
+
+export function setLightIntensity(plugin: PluginContext, intensity: number) {
+    const light = plugin.canvas3d?.props.renderer.light;
+    if (!light || light.length === 0) return;
+    plugin.canvas3d?.setProps({ renderer: { light: [{ ...light[0], intensity }] } });
 }
 
 //

@@ -55,13 +55,15 @@ const Backgrounds: [string, Color][] = [
 const UniformSwatches = [0x94a3b8, 0x3b82f6, 0xef4444, 0x10b981, 0xf59e0b, 0x8b5cf6, 0xec4899, 0x111827];
 
 const selectedButtonStyle: React.CSSProperties = {
-    boxShadow: 'inset 0 0 0 2px #3b82f6',
-    fontWeight: 700,
+    background: '#e0edff',
+    border: '1px solid #3b82f6',
     color: '#1d4ed8',
+    fontWeight: 600,
 };
 
-const gridStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '3px' };
-const rowStyle: React.CSSProperties = { display: 'flex', gap: '4px', alignItems: 'center', flexWrap: 'wrap' };
+const gridStyle: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8 };
+const grid3Style: React.CSSProperties = { display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 8 };
+const rowStyle: React.CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' };
 const fontFamily = '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif';
 
 const selectArrow = "url(\"data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%236b7280' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E\")";
@@ -70,13 +72,14 @@ const StructureFileAccept = '.pdb,.ent,.cif,.mmcif,.bcif,.pdbqt,.sdf,.mol,.mol2,
 
 const selectStyle: React.CSSProperties = {
     width: '100%',
-    marginTop: 4,
-    padding: '4px 24px 4px 6px',
-    fontSize: 15,
+    height: 32,
+    boxSizing: 'border-box',
+    padding: '0 26px 0 10px',
+    fontSize: 14,
     color: '#374151',
-    background: `#ffffff ${selectArrow} no-repeat right 8px center`,
-    border: '1px solid #cbd5e1',
-    borderRadius: 6,
+    background: `#ffffff ${selectArrow} no-repeat right 9px center`,
+    border: '1px solid #e2e5ea',
+    borderRadius: 8,
     appearance: 'none',
     WebkitAppearance: 'none',
     MozAppearance: 'none',
@@ -84,12 +87,18 @@ const selectStyle: React.CSSProperties = {
     outline: 'none',
 };
 const swatchStyle = (active: boolean): React.CSSProperties => ({
-    width: 20, height: 20, borderRadius: 4, cursor: 'pointer',
-    border: active ? '2px solid #111' : '1px solid #888', padding: 0,
+    width: 22, height: 22, borderRadius: '50%', cursor: 'pointer',
+    border: active ? '2px solid #3b82f6' : '1px solid #d5d9e0', padding: 0,
+    boxShadow: active ? '0 0 0 2px #dbeafe' : 'none',
 });
+const colorInputStyle: React.CSSProperties = { width: 30, height: 26, border: '1px solid #e2e5ea', borderRadius: 6, padding: 0, cursor: 'pointer', background: 'transparent', flexShrink: 0 };
+const numStyle: React.CSSProperties = { minWidth: 44, height: 26, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', fontSize: 13, color: '#374151', background: '#fff', border: '1px solid #e2e5ea', borderRadius: 6, flexShrink: 0 };
 
-const layerBoxStyle: React.CSSProperties = { marginTop: 6, marginLeft: 8, padding: '3px 6px', border: '1px solid #e5e7eb', borderRadius: 6, background: '#fafafa' };
-const removeButtonStyle: React.CSSProperties = { border: 'none', background: 'transparent', cursor: 'pointer', color: '#ef4444', fontWeight: 700, fontSize: 15, lineHeight: 1 };
+const layerBoxStyle: React.CSSProperties = { marginTop: 4, padding: '6px 8px', border: '1px solid #eceef2', borderRadius: 10, background: '#ffffff' };
+const fileRowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', gap: 8, height: 32, padding: '0 6px 0 10px', borderRadius: 8, border: '1px solid #eceef2', background: '#ffffff', cursor: 'pointer' };
+const fileRowActiveStyle: React.CSSProperties = { borderColor: '#3b82f6', background: '#e0edff' };
+const fileNameStyle: React.CSSProperties = { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 };
+const removeButtonStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, border: 'none', background: 'transparent', cursor: 'pointer', color: '#9ca3af', borderRadius: 6, padding: 0 };
 const collapseButtonStyle: React.CSSProperties = { border: 'none', background: 'transparent', cursor: 'pointer', color: '#6b7280', fontSize: 13, lineHeight: 1, padding: '0 2px' };
 
 /** 视口：与默认视口一致，但没有多帧（trajectory）时隐藏动画控件 */
@@ -137,6 +146,38 @@ export function EasyViewport() {
 const SeqSvg = () => <svg viewBox='0 0 24 24'><text x='12' y='16.5' textAnchor='middle' fontSize='8.5' fontWeight='700' fill='currentColor' fontFamily='Inter, sans-serif'>SEQ</text></svg>;
 const InfoSvg = () => <svg viewBox='0 0 24 24'><path fill='currentColor' d='M12 2a10 10 0 100 20 10 10 0 000-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z' /></svg>;
 const FileSvg = () => <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'><path d='M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z' /><polyline points='14 2 14 8 20 8' /></svg>;
+const EyeSvg = () => <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'><path d='M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z' /><circle cx='12' cy='12' r='3' /></svg>;
+const EyeOffSvg = () => <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'><path d='M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24' /><line x1='1' y1='1' x2='23' y2='23' /></svg>;
+const TrashSvg = () => <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'><polyline points='3 6 5 6 21 6' /><path d='M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6' /><path d='M10 11v6M14 11v6' /><path d='M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2' /></svg>;
+const ChevronSvg = ({ collapsed }: { collapsed: boolean }) =>
+    <svg width='10' height='6' viewBox='0 0 10 6' style={{ flexShrink: 0, transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.12s' }}>
+        <path fill='currentColor' d='M0 0l5 6 5-6z' />
+    </svg>;
+
+/** 分段控件（Flat / 3D、High / Normal / Preview） */
+function Segmented({ value, options, onChange, disabled }: {
+    value: string, options: [string, React.ReactNode][], onChange: (v: string) => void, disabled?: boolean
+}) {
+    return <div className='easy-segmented'>
+        {options.map(([v, label]) =>
+            <button key={v} type='button' disabled={disabled}
+                className={'easy-seg' + (value === v ? ' easy-seg-active' : '')}
+                onClick={() => onChange(v)}>{label}</button>)}
+    </div>;
+}
+
+/** 可折叠的属性行（表示卡片内的 Color / Opacity 等） */
+function PropRow({ id, label, collapsed, onToggle, children }: {
+    id: string, label: React.ReactNode, collapsed: boolean, onToggle: (id: string) => void, children: React.ReactNode
+}) {
+    return <div className='easy-prop'>
+        <button type='button' className='easy-prop-head' onClick={() => onToggle(id)}>
+            <ChevronSvg collapsed={collapsed} />
+            <span className='easy-prop-label'>{label}</span>
+        </button>
+        {!collapsed && <div className='easy-prop-body'>{children}</div>}
+    </div>;
+}
 
 /** 打开文件询问框：新建（清空当前场景）或添加（追加） */
 function OpenFileDialog({ onPick, onClose }: { onPick: (mode: 'new' | 'add') => void, onClose: () => void }) {
@@ -319,9 +360,13 @@ export function EasyViewportControls() {
 }
 
 function Section({ title, children }: { title: React.ReactNode, children: React.ReactNode }) {
-    return <div style={{ marginTop: 10, border: '1px solid #b8bec9', borderRadius: 6, overflow: 'hidden' }}>
-        <div style={{ padding: '2px 6px', fontWeight: 700, fontSize: 16, borderBottom: '1px solid #d1d5db' }}>{title}</div>
-        <div style={{ padding: '4px 6px' }}>{children}</div>
+    const [collapsed, setCollapsed] = React.useState(false);
+    return <div className='easy-section'>
+        <button type='button' className='easy-section-title' onClick={() => setCollapsed(v => !v)}>
+            <ChevronSvg collapsed={collapsed} />
+            <span>{title}</span>
+        </button>
+        {!collapsed && <div className='easy-section-body'>{children}</div>}
     </div>;
 }
 
@@ -357,11 +402,12 @@ export class EasyControls extends PluginUIComponent<{}, {
     langOpen: boolean,
     collapsed: { [key: string]: boolean },
     bgColor: number,
+    lightIntensity: number,
 }> {
     state = {
         busy: false,
         chainPalette: 'default',
-        rainbowPalette: 'rainbow',
+        rainbowPalette: 'blue',
         uniformColor: 0x94a3b8,
         waterVisible: true,
         hMode: 'polar' as Actions.HydrogenMode,
@@ -382,6 +428,7 @@ export class EasyControls extends PluginUIComponent<{}, {
         langOpen: false,
         collapsed: {} as { [key: string]: boolean },
         bgColor: 0xffffff,
+        lightIntensity: 0.6,
     };
 
     private pendingUpdate = false;
@@ -401,14 +448,16 @@ export class EasyControls extends PluginUIComponent<{}, {
     componentDidMount() {
         this.injectStyle();
         this.refreshChains();
+        this.setState({ lightIntensity: Actions.getLightIntensity(this.plugin) });
         this.activeSub = Actions.subscribeActiveStructure(this.scheduleUpdate);
         this.subscribe(this.plugin.state.data.events.changed, this.scheduleUpdate);
+        this.subscribe(this.plugin.state.data.events.cell.stateUpdated, this.scheduleUpdate);
         this.subscribe(this.plugin.events.canvas3d.settingsUpdated, this.scheduleUpdate);
         this.targetedSub = Actions.subscribeTargetedChain(() => {
             const target = Actions.getTargetedChain() ?? 'all';
             if (this.state.chainTarget !== target) this.setState({ chainTarget: target });
         });
-        // 画布上选中/聚焦某条链时，Polymer 目标自动切到该链
+        // 画布上选中/聚焦某条链时，Polymer 目标自动切到该链（不整链高亮，保留用户点选的残基）
         const switchToLoci = (loci: any) => {
             if (!loci || !StructureElement.Loci.is(loci) || StructureElement.Loci.isEmpty(loci)) return;
             const loc = StructureElement.Loci.getFirstLocation(loci);
@@ -416,7 +465,7 @@ export class EasyControls extends PluginUIComponent<{}, {
             const chain = StructureProperties.chain.label_asym_id(loc);
             if (chain && chain !== this.state.chainTarget && this.state.chains.indexOf(chain) >= 0) {
                 this.setState({ chainTarget: chain });
-                Actions.setTargetedChain(this.plugin, chain);
+                Actions.setTargetedChain(this.plugin, chain, false);
             }
         };
         this.subscribe(this.plugin.managers.structure.focus.behaviors.current, (focus: any) => switchToLoci(focus?.loci));
@@ -434,6 +483,8 @@ export class EasyControls extends PluginUIComponent<{}, {
     private targetedSub?: () => void;
     private activeSub?: () => void;
     private activeStructureKey = '';
+    private lastActiveRef: string | null = null;
+    private chainPresCache = new Map<string, { [chain: string]: ChainPresentation }>();
 
     /** 放大侧栏字号（给老人看），只作用于本面板 */
     private injectStyle() {
@@ -441,9 +492,39 @@ export class EasyControls extends PluginUIComponent<{}, {
         const style = document.createElement('style');
         style.id = 'easy-viewer-style';
         style.textContent = `
-            .easy-panel { font-size: 16px; }
-            .easy-panel .msp-btn { font-size: 15px; height: auto; line-height: 1.35; padding: 3px 6px; }
-            .easy-panel small { font-size: 15px; font-weight: 600; line-height: 26px; }
+            .easy-panel { font-size: 14px; background: #f6f7f9; color: #374151; }
+            .easy-panel .msp-btn {
+                height: 32px; font-size: 14px; line-height: 1; padding: 0 10px;
+                background: #f3f4f6; border: 1px solid #e6e8ec; border-radius: 8px; color: #374151;
+            }
+            .easy-panel .msp-btn:hover { background: #e9ecf1; }
+            .easy-panel .msp-btn:disabled { opacity: 0.5; }
+            .easy-panel small { font-size: 13px; font-weight: 600; color: #6b7280; line-height: 1.2; }
+            .easy-section { margin-top: 12px; }
+            .easy-section-title {
+                display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
+                border: none; border-bottom: 1px solid #e8ebf0; background: transparent; cursor: pointer;
+                font-size: 16px; font-weight: 600; color: #1f2937; letter-spacing: 0.01em;
+                padding: 0 0 4px; margin: 0 0 6px;
+            }
+            .easy-section-title:hover { color: #1d4ed8; }
+            .easy-section-body { display: flex; flex-direction: column; gap: 4px; }
+            .easy-prop { border-top: 1px solid #f0f2f5; }
+            .easy-prop-head { display: flex; align-items: center; gap: 4px; width: 100%; border: none; background: transparent; cursor: pointer; padding: 3px 0; color: #6b7280; font-size: 13px; font-weight: 600; }
+            .easy-section-title svg { color: #6b7280; }
+            .easy-prop-head svg { color: #9ca3af; }
+            .easy-prop-body { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 2px 0 4px 14px; }
+            .easy-segmented { display: flex; gap: 2px; padding: 2px; background: #eef1f5; border-radius: 9px; }
+            .easy-seg {
+                flex: 1; height: 28px; border: none; background: transparent; border-radius: 7px;
+                font-size: 14px; color: #4b5563; cursor: pointer; padding: 0 8px; white-space: nowrap;
+            }
+            .easy-seg:hover { background: #e3e8ef; }
+            .easy-seg-active { background: #ffffff; color: #1d4ed8; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.12); }
+            .easy-seg-active:hover { background: #ffffff; }
+            .easy-icon-btn svg { width: 18px; height: 18px; }
+            .easy-icon-btn:hover { background: #eef1f5; color: #374151; }
+            .easy-file-row:hover { background: #f3f4f6; }
             .easy-viewport-controls {
                 position: absolute; top: 8px; left: 8px; z-index: 30;
                 display: flex; flex-direction: column; gap: 6px;
@@ -560,11 +641,11 @@ export class EasyControls extends PluginUIComponent<{}, {
                 .msp-layout-standard-reactive .msp-layout-left:has(.easy-panel) .msp-layout-static { background: transparent !important; }
                 .msp-layout-standard-reactive .msp-layout-left .easy-panel {
                     top: 2px !important; left: 6px !important; right: 6px !important; bottom: 2px !important;
-                    border-radius: 12px;
-                    background: rgba(255,255,255,0.78);
+                    border-radius: 14px;
+                    background: rgba(246,247,249,0.94);
                     -webkit-backdrop-filter: blur(8px);
                     backdrop-filter: blur(8px);
-                    border: 1px solid #b8bec9;
+                    border: 1px solid #e8ebf0;
                     pointer-events: auto;
                 }
             }
@@ -573,15 +654,23 @@ export class EasyControls extends PluginUIComponent<{}, {
     }
 
     private refreshChains() {
-        const key = Actions.getActiveStructureIndex(this.plugin) + ':' + Actions.getAllStructures(this.plugin).length;
+        const all = Actions.getAllStructures(this.plugin);
+        const idx = Actions.getActiveStructureIndex(this.plugin);
+        const ref = all[idx]?.cell.transform.ref ?? '';
+        const key = ref + ':' + all.length;
         const chains = Actions.getAvailableChains(this.plugin);
         const same = key === this.activeStructureKey && chains.length === this.state.chains.length && chains.every((c, i) => c === this.state.chains[i]);
         if (same) return;
+        // 切换结构：保存上一个结构的链设置，恢复目标结构的链设置
+        if (this.lastActiveRef && this.lastActiveRef !== ref) {
+            this.chainPresCache.set(this.lastActiveRef, this.state.chainPres);
+        }
+        this.lastActiveRef = ref;
         this.activeStructureKey = key;
         const chainTypes = Actions.getChainTypes(this.plugin);
-        const chainPres = { ...this.state.chainPres };
+        const chainPres = { ...(this.chainPresCache.get(ref) ?? {}) };
         for (const c of chains) {
-            if (!chainPres[c]) chainPres[c] = { chain: c, layers: [{ type: 'cartoon', color: 'chain-id' }] };
+            if (!chainPres[c]) chainPres[c] = { chain: c, layers: [{ type: 'cartoon', color: 'sequence-id', colorOptions: { rainbowPalette: 'blue' } }] };
         }
         // 结构变化（重新加载）时退出逐链模式
         this.setState({ chains, chainTypes, chainPres, perChainActive: false, chainTarget: 'all' });
@@ -593,9 +682,9 @@ export class EasyControls extends PluginUIComponent<{}, {
         return t ? `Chain ${c}(${t})` : `Chain ${c}`;
     }
 
-    private toggleCollapse(key: string) {
+    private toggleCollapse = (key: string) => {
         this.setState({ collapsed: { ...this.state.collapsed, [key]: !this.state.collapsed[key] } });
-    }
+    };
 
     private targetChains(): string[] {
         return this.state.chainTarget === 'all' ? this.state.chains : [this.state.chainTarget];
@@ -737,19 +826,18 @@ export class EasyControls extends PluginUIComponent<{}, {
                 <button title='收起/展开' onClick={() => this.toggleCollapse(collapseKey)} style={collapseButtonStyle}>{collapsed ? '▸' : '▾'}</button>
                 <span style={{ fontWeight: 700, color: '#9ca3af', fontSize: 12 }}>{index + 1}</span>
                 <i style={{ flex: 1, fontWeight: 600 }}>{I18n.reprName(layer.type)}</i>
-                <label style={{ ...rowStyle, gap: 3 }}>
-                    <input type="checkbox" checked={layer.visible !== false} onChange={e => onVisible(e.target.checked)} />
-                    <small>{I18n.t('visible')}</small>
-                </label>
-                <button title='×' onClick={onRemove} style={removeButtonStyle}>×</button>
+                <button className='easy-icon-btn' title={I18n.t('visible')} style={removeButtonStyle}
+                    onClick={() => onVisible(layer.visible === false)}>
+                    {layer.visible === false ? <EyeOffSvg /> : <EyeSvg />}
+                </button>
+                <button className='easy-icon-btn' title={I18n.t('remove')} onClick={onRemove} style={removeButtonStyle}><TrashSvg /></button>
             </div>
-            {!collapsed && isSurface && <div style={{ ...rowStyle, marginTop: 4 }}>
-                <small style={{ minWidth: 32 }}>{I18n.t('opacity')}</small>
+            {!collapsed && isSurface && <PropRow id={collapseKey + ':opacity'} label={I18n.t('opacity')} collapsed={!!this.state.collapsed[collapseKey + ':opacity']} onToggle={this.toggleCollapse}>
                 <input type="range" min={0.1} max={1} step={0.05} value={layer.alpha ?? 1}
                     style={{ flex: 1 }}
                     onChange={e => onAlpha(parseFloat(e.target.value))} />
-                <small>{(layer.alpha ?? 1).toFixed(2)}</small>
-            </div>}
+                <span style={numStyle}>{(layer.alpha ?? 1).toFixed(2)}</span>
+            </PropRow>}
         </div>;
     }
 
@@ -767,26 +855,28 @@ export class EasyControls extends PluginUIComponent<{}, {
                 <button title={I18n.t('close')} onClick={() => this.run(() => Actions.setPanelVisible(p, false))}
                     style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 24, lineHeight: 1, color: '#6b7280', padding: '0 8px' }}>×</button>
             </div>
-            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 8 }}>
-            {Actions.getAllStructures(p).length > 1 && <Section title={I18n.t('files')}>
-                <select style={{ ...selectStyle, marginTop: 0, width: '100%' }} value={Actions.getActiveStructureIndex(p)}
-                    onChange={e => { Actions.setActiveStructure(p, Number(e.target.value)); this.refreshChains(); }}>
-                    {Actions.getAllStructures(p).map((_, i) => <option key={i} value={i}>{Actions.getStructureLabel(p, i)}</option>)}
-                </select>
+            <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: '4px 12px 12px' }}>
+            {Actions.getAllStructures(p).length > 0 && <Section title={I18n.t('files')}>
+                {Actions.getAllStructures(p).map((_, i) => {
+                    const active = Actions.getActiveStructureIndex(p) === i;
+                    const visible = Actions.isStructureVisible(p, i);
+                    return <div key={i} className='easy-file-row' style={{ ...fileRowStyle, ...(active ? fileRowActiveStyle : null) }}
+                        onClick={() => Actions.setActiveStructure(p, i)}>
+                        <span style={fileNameStyle}>{Actions.getStructureLabel(p, i)}</span>
+                        <button className='easy-icon-btn' title={I18n.t('visible')} style={removeButtonStyle}
+                            onClick={e => { e.stopPropagation(); Actions.setStructureVisible(p, i, !visible); }}>
+                            {visible ? <EyeSvg /> : <EyeOffSvg />}
+                        </button>
+                    </div>;
+                })}
             </Section>}
             <Section title={I18n.t('style')}>
-                <div style={gridStyle}>
-                    <Button disabled={disabled} style={this.state.baseStyle === 'cartoon' ? selectedButtonStyle : undefined}
-                        onClick={() => this.run(async () => {
-                            this.setState({ baseStyle: 'cartoon', illustrative: true });
-                            await Actions.setBaseStyle(p, 'cartoon');
-                        })}>{I18n.t('flat')}</Button>
-                    <Button disabled={disabled} style={this.state.baseStyle === '3d' ? selectedButtonStyle : undefined}
-                        onClick={() => this.run(async () => {
-                            this.setState({ baseStyle: '3d', illustrative: false });
-                            await Actions.setBaseStyle(p, '3d');
-                        })}>{I18n.t('threeD')}</Button>
-                </div>
+                <Segmented value={this.state.baseStyle ?? ''} disabled={disabled}
+                    options={[['cartoon', I18n.t('flat')], ['3d', I18n.t('threeD')]]}
+                    onChange={v => this.run(async () => {
+                        this.setState({ baseStyle: v as Actions.BaseStyle, illustrative: v === 'cartoon' });
+                        await Actions.setBaseStyle(p, v as Actions.BaseStyle);
+                    })} />
             </Section>
 
             <Section title={I18n.t('polymer')}>
@@ -799,7 +889,7 @@ export class EasyControls extends PluginUIComponent<{}, {
                             {this.state.chains.map(c => <option key={c} value={c}>{this.chainLabel(c)}</option>)}
                         </select>
                     </div>
-                    <div style={{ ...rowStyle, marginTop: 6 }}>
+                    <div style={{ ...rowStyle, marginTop: 4 }}>
                         <small style={{ minWidth: 32 }}>{I18n.t('add')}</small>
                         <select style={{ ...selectStyle, marginTop: 0, flex: 1 }} value=''
                             onChange={e => { if (e.target.value) this.addLayer(e.target.value as EasyRepresentationType); }}>
@@ -809,8 +899,8 @@ export class EasyControls extends PluginUIComponent<{}, {
                     </div>
                     {(() => {
                         const layers = this.targetLayers();
-                        if (layers === null) return <div style={{ marginTop: 6 }}><small style={{ color: '#888' }}>{I18n.t('chainsDiffer')}</small></div>;
-                        if (layers.length === 0) return <div style={{ marginTop: 6 }}><small style={{ color: '#888' }}>{I18n.t('noRepr')}</small></div>;
+                        if (layers === null) return <div style={{ marginTop: 4 }}><small style={{ color: '#888' }}>{I18n.t('chainsDiffer')}</small></div>;
+                        if (layers.length === 0) return <div style={{ marginTop: 4 }}><small style={{ color: '#888' }}>{I18n.t('noRepr')}</small></div>;
                         return layers.map((layer, i) => {
                             const color = layer.color ?? 'chain-id';
                             const collapseKey = 'poly:' + layer.type;
@@ -820,16 +910,14 @@ export class EasyControls extends PluginUIComponent<{}, {
                                     <button title='收起/展开' onClick={() => this.toggleCollapse(collapseKey)} style={collapseButtonStyle}>{collapsed ? '▸' : '▾'}</button>
                                     <span style={{ fontWeight: 700, color: '#9ca3af', fontSize: 12 }}>{i + 1}</span>
                                     <i style={{ flex: 1, fontWeight: 600 }}>{I18n.reprName(layer.type)}</i>
-                                    <label style={{ ...rowStyle, gap: 3 }}>
-                                        <input type="checkbox" checked={layer.visible !== false}
-                                            onChange={e => this.setLayerVisible(layer.type, e.target.checked)} />
-                                        <small>{I18n.t('visible')}</small>
-                                    </label>
-                                    <button title='×' onClick={() => this.removeLayer(layer.type)} style={removeButtonStyle}>×</button>
+                                    <button className='easy-icon-btn' title={I18n.t('visible')} style={removeButtonStyle}
+                                        onClick={() => this.setLayerVisible(layer.type, layer.visible === false)}>
+                                        {layer.visible === false ? <EyeOffSvg /> : <EyeSvg />}
+                                    </button>
+                                    <button className='easy-icon-btn' title={I18n.t('remove')} onClick={() => this.removeLayer(layer.type)} style={removeButtonStyle}><TrashSvg /></button>
                                 </div>
                                 {!collapsed && <>
                                     <div style={{ ...rowStyle, marginTop: 4 }}>
-                                        <small style={{ minWidth: 32 }}>{I18n.t('color')}</small>
                                         <select style={{ ...selectStyle, marginTop: 0, flex: 1 }} value={color}
                                             onChange={e => this.setLayerColor(layer.type, e.target.value as EasyColorTheme)}>
                                             {ChainColors.map(v => <option key={v} value={v}>{I18n.themeName(v)}</option>)}
@@ -849,20 +937,19 @@ export class EasyControls extends PluginUIComponent<{}, {
                                         <div style={{ ...rowStyle, marginTop: 4 }}>
                                             <input type="color" value={'#' + this.state.uniformColor.toString(16).padStart(6, '0')}
                                                 onChange={e => this.setLayerUniform(layer.type, parseInt(e.target.value.slice(1), 16))}
-                                                style={{ width: 30, height: 24, border: '1px solid #cbd5e1', borderRadius: 4, padding: 0, cursor: 'pointer', background: 'transparent' }} />
+                                                style={{ ...colorInputStyle, width: 30, height: 24, borderRadius: 4 }} />
                                             {UniformSwatches.map(c =>
                                                 <button key={c} title={'#' + c.toString(16).padStart(6, '0')}
                                                     style={{ ...swatchStyle(this.state.uniformColor === c), background: '#' + c.toString(16).padStart(6, '0') }}
                                                     onClick={() => this.setLayerUniform(layer.type, c)} />)}
                                         </div>}
-                                    {(layer.type === 'molecular-surface' || layer.type === 'gaussian-surface') &&
-                                        <div style={{ ...rowStyle, marginTop: 4 }}>
-                                            <small style={{ minWidth: 32 }}>{I18n.t('opacity')}</small>
-                                            <input type="range" min={0.1} max={1} step={0.05} value={layer.alpha ?? 1}
-                                                style={{ flex: 1 }}
-                                                onChange={e => this.setLayerAlpha(layer.type, parseFloat(e.target.value))} />
-                                            <small>{(layer.alpha ?? 1).toFixed(2)}</small>
-                                        </div>}
+                                    <div style={{ ...rowStyle, marginTop: 4, flexWrap: 'nowrap' }}>
+                                        <small style={{ minWidth: 32 }}>{I18n.t('opacity')}</small>
+                                        <input type="range" min={0.1} max={1} step={0.05} value={layer.alpha ?? 1}
+                                            style={{ flex: 1 }}
+                                            onChange={e => this.setLayerAlpha(layer.type, parseFloat(e.target.value))} />
+                                        <span style={numStyle}>{(layer.alpha ?? 1).toFixed(2)}</span>
+                                    </div>
                                 </>}
                             </div>;
                         });
@@ -881,7 +968,7 @@ export class EasyControls extends PluginUIComponent<{}, {
                 </div>
                 {(() => {
                     const layers = Actions.getLigandLayers(p);
-                    if (layers.length === 0) return <div style={{ marginTop: 6 }}><small style={{ color: '#888' }}>{I18n.t('noRepr')}</small></div>;
+                    if (layers.length === 0) return <div style={{ marginTop: 4 }}><small style={{ color: '#888' }}>{I18n.t('noRepr')}</small></div>;
                     return layers.map((layer, i) => this.renderLayer(
                         layer, i, 'ligand:' + layer.type,
                         v => this.run(() => Actions.setLigandLayerVisible(p, layer.type, v)),
@@ -904,7 +991,7 @@ export class EasyControls extends PluginUIComponent<{}, {
                         <option value="all">{I18n.t('allHydrogen')}</option>
                     </select>
                 </div>
-                <div style={{ ...gridStyle, gridTemplateColumns: '1fr 1fr 1fr', marginTop: 4 }}>
+                <div style={grid3Style}>
                     <Button disabled={disabled} style={Actions.isOutlineOn(p) ? selectedButtonStyle : undefined}
                         onClick={() => Actions.setOutline(p, !Actions.isOutlineOn(p))}>{I18n.t('outline')}</Button>
                     <Button disabled={disabled} style={Actions.isShadowOn(p) ? selectedButtonStyle : undefined}
@@ -920,24 +1007,24 @@ export class EasyControls extends PluginUIComponent<{}, {
                     <input type="range" min={0.3} max={1.5} step={0.05} value={this.state.labelScale}
                         style={{ flex: 1 }}
                         onChange={e => { const s = parseFloat(e.target.value); this.setState({ labelScale: s }); this.setLabelScaleDebounced(s); }} />
-                    <small>{this.state.labelScale.toFixed(2)}</small>
+                    <span style={numStyle}>{this.state.labelScale.toFixed(2)}</span>
                 </div>
-                <div style={{ ...rowStyle, marginTop: 4 }}>
+                <div style={{ ...rowStyle, marginTop: 2 }}>
                     <small style={{ minWidth: 48 }}>{I18n.t('labelTextColor')}</small>
                     <input type="color" value={'#' + this.state.labelColor.toString(16).padStart(6, '0')}
                         onChange={e => { const c = parseInt(e.target.value.slice(1), 16); this.setState({ labelColor: c }); this.run(() => Actions.setLabelColor(p, c)); }}
-                        style={{ width: 30, height: 24, border: '1px solid #cbd5e1', borderRadius: 4, padding: 0, cursor: 'pointer', background: 'transparent' }} />
+                        style={colorInputStyle} />
                     <small style={{ minWidth: 48 }}>{I18n.t('labelBgColor')}</small>
                     <input type="color" value={'#' + this.state.labelBgColor.toString(16).padStart(6, '0')}
                         onChange={e => { const c = parseInt(e.target.value.slice(1), 16); this.setState({ labelBgColor: c }); this.run(() => Actions.setLabelBackgroundColor(p, c)); }}
-                        style={{ width: 30, height: 24, border: '1px solid #cbd5e1', borderRadius: 4, padding: 0, cursor: 'pointer', background: 'transparent' }} />
+                        style={colorInputStyle} />
                 </div>
-                <div style={{ ...rowStyle, marginTop: 4 }}>
+                <div style={{ ...rowStyle, marginTop: 2 }}>
                     <small style={{ minWidth: 48 }}>{I18n.t('labelBgOpacity')}</small>
                     <input type="range" min={0} max={1} step={0.05} value={this.state.labelBgOpacity}
                         style={{ flex: 1 }}
                         onChange={e => { const v = parseFloat(e.target.value); this.setState({ labelBgOpacity: v }); this.setLabelBgOpacityDebounced(v); }} />
-                    <small>{this.state.labelBgOpacity.toFixed(2)}</small>
+                    <span style={numStyle}>{this.state.labelBgOpacity.toFixed(2)}</span>
                 </div>
             </Section>
 
@@ -956,7 +1043,7 @@ export class EasyControls extends PluginUIComponent<{}, {
                             <small>{t}</small>
                         </span>)}
                 </div>
-                <div style={{ ...rowStyle, marginTop: 4 }}>
+                <div style={{ ...rowStyle, marginTop: 2 }}>
                     <small>{I18n.t('radius')}</small>
                     <input type="range" min={0.3} max={2} step={0.1} value={this.state.pharmacophoreScale}
                         style={{ flex: 1 }}
@@ -965,7 +1052,7 @@ export class EasyControls extends PluginUIComponent<{}, {
                             this.setState({ pharmacophoreScale: scale });
                             if (this.state.pharmacophoreVisible) this.refreshPharmacophore(scale);
                         }} />
-                    <small>{this.state.pharmacophoreScale.toFixed(1)}</small>
+                    <span style={numStyle}>{this.state.pharmacophoreScale.toFixed(1)}</span>
                 </div>
             </Section>}
 
@@ -988,24 +1075,29 @@ export class EasyControls extends PluginUIComponent<{}, {
                     <Button style={p.canvas3d?.props.trackball.animate.name === 'spin' ? selectedButtonStyle : undefined}
                         onClick={() => Actions.setSpin(p, p.canvas3d?.props.trackball.animate.name !== 'spin')}>{I18n.t('spin')}</Button>
                 </div>
-                <div style={{ ...gridStyle, gridTemplateColumns: '1fr 1fr 1fr', marginTop: 4 }}>
-                    {([['high', I18n.t('qualityHigh')], ['normal', I18n.t('qualityNormal')], ['preview', I18n.t('qualityPreview')]] as [Actions.RenderQuality, string][]).map(([v, label]) =>
-                        <Button key={v} style={this.state.renderQuality === v ? selectedButtonStyle : undefined}
-                            onClick={() => { this.setState({ renderQuality: v }); this.run(() => Actions.setRenderQuality(p, v)); }}>{label}</Button>)}
+                <Segmented value={this.state.renderQuality}
+                    options={[['high', I18n.t('qualityHigh')], ['normal', I18n.t('qualityNormal')], ['preview', I18n.t('qualityPreview')]]}
+                    onChange={v => { this.setState({ renderQuality: v as Actions.RenderQuality }); this.run(() => Actions.setRenderQuality(p, v as Actions.RenderQuality)); }} />
+                <div style={{ ...rowStyle, flexWrap: 'nowrap' }}>
+                    <small style={{ minWidth: 48 }}>{I18n.t('lighting')}</small>
+                    <input type="range" min={0} max={3} step={0.05} value={this.state.lightIntensity}
+                        style={{ flex: 1 }}
+                        onChange={e => { const v = parseFloat(e.target.value); this.setState({ lightIntensity: v }); Actions.setLightIntensity(p, v); }} />
+                    <span style={numStyle}>{this.state.lightIntensity.toFixed(2)}</span>
                 </div>
-                <div style={{ ...rowStyle, marginTop: 8, flexWrap: 'nowrap' }}>
+                <div style={{ ...rowStyle, flexWrap: 'nowrap' }}>
                     <small style={{ minWidth: 48 }}>{I18n.t('bgColor')}</small>
                     <input type="color" value={'#' + this.state.bgColor.toString(16).padStart(6, '0')}
                         onChange={e => { const c = parseInt(e.target.value.slice(1), 16); this.setState({ bgColor: c }); Actions.setBackground(p, Color(c)); }}
-                        style={{ width: 30, height: 24, border: '1px solid #cbd5e1', borderRadius: 4, padding: 0, cursor: 'pointer', background: 'transparent', flexShrink: 0 }} />
+                        style={{ ...colorInputStyle, width: 28, height: 28, borderRadius: '50%' }} />
                     {Backgrounds.map(([label, color]) =>
                         <button key={label} title={I18n.bgName(label)} onClick={() => Actions.setBackground(p, color)}
-                            style={{ width: 24, height: 24, borderRadius: 4, border: '1px solid #888', cursor: 'pointer', background: Color.toStyle(color), flexShrink: 0 }} />)}
+                            style={{ width: 24, height: 24, borderRadius: '50%', border: '1px solid #d5d9e0', cursor: 'pointer', background: Color.toStyle(color), flexShrink: 0 }} />)}
                 </div>
             </Section>
             </div>
 
-            <div style={{ padding: 8, background: 'rgba(255,255,255,0.92)', borderTop: '1px solid #b8bec9' }}>
+            <div style={{ padding: '10px 12px', background: '#f6f7f9', borderTop: '1px solid #e8ebf0' }}>
                 <div style={{ display: 'flex', gap: 6, alignItems: 'center', flexWrap: 'nowrap' }}>
                     <div style={{ position: 'relative', flex: '0 1 auto', minWidth: 0 }}>
                         <button className='easy-lang-btn' onClick={() => this.setState({ langOpen: !this.state.langOpen })}>
@@ -1020,7 +1112,7 @@ export class EasyControls extends PluginUIComponent<{}, {
                     </div>
                     <Button style={{ flex: 1, whiteSpace: 'nowrap' }} onClick={() => Actions.toggleClassicMode(p)}>{I18n.t('classic')}</Button>
                 </div>
-                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                <div style={{ display: 'flex', gap: 6, marginTop: 4 }}>
                     <Button style={{ flex: 1 }} onClick={() => Actions.exportState(p)}>{I18n.t('exportState')}</Button>
                     <Button style={{ flex: 1 }} onClick={() => this.stateFileInput.current?.click()}>{I18n.t('loadState')}</Button>
                     <input ref={this.stateFileInput} type='file' accept='.molj,.molx,.json,.zip' style={{ display: 'none' }}

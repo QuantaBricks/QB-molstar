@@ -52,6 +52,7 @@ interface Dict {
     chainsDiffer: string;
     noRepr: string;
     visible: string;
+    remove: string;
     color: string;
     opacity: string;
     noChains: string;
@@ -85,6 +86,7 @@ interface Dict {
     transparent: string;
     axes: string;
     bgColor: string;
+    lighting: string;
     about: string;
     aboutOriginal: string;
     aboutModified: string;
@@ -136,6 +138,7 @@ const zh: Dict = {
     chainsDiffer: '各链表示不同（-）',
     noRepr: '（无表示）',
     visible: '可见',
+    remove: '删除',
     color: '配色',
     opacity: '透明',
     noChains: '未检测到链',
@@ -166,6 +169,7 @@ const zh: Dict = {
     transparent: '透明背景',
     axes: '坐标轴',
     bgColor: '背景颜色',
+    lighting: '光照',
     about: '关于',
     aboutOriginal: '原版开发',
     aboutModified: '本版本修改',
@@ -236,6 +240,7 @@ const en: Dict = {
     chainsDiffer: 'Chains differ (-)',
     noRepr: '(no representation)',
     visible: 'Visible',
+    remove: 'Remove',
     color: 'Color',
     opacity: 'Opacity',
     noChains: 'No chains detected',
@@ -266,6 +271,7 @@ const en: Dict = {
     transparent: 'Transparent',
     axes: 'Axes',
     bgColor: 'Background',
+    lighting: 'Lighting',
     about: 'About',
     aboutOriginal: 'Original project',
     aboutModified: 'Modifications',
@@ -336,6 +342,7 @@ const ja: Dict = {
     chainsDiffer: 'チェーンごとに異なる（-）',
     noRepr: '（表現なし）',
     visible: '表示',
+    remove: '削除',
     color: '配色',
     opacity: '透明度',
     noChains: 'チェーンがありません',
@@ -366,6 +373,7 @@ const ja: Dict = {
     transparent: '透過背景',
     axes: '軸',
     bgColor: '背景色',
+    lighting: '照明',
     about: '情報',
     aboutOriginal: 'オリジナル',
     aboutModified: '改変',
@@ -436,6 +444,7 @@ const zhHant: Dict = {
     chainsDiffer: '各鏈表示不同（-）',
     noRepr: '（無表示）',
     visible: '可見',
+    remove: '刪除',
     color: '配色',
     opacity: '透明',
     noChains: '未偵測到鏈',
@@ -466,6 +475,7 @@ const zhHant: Dict = {
     transparent: '透明背景',
     axes: '座標軸',
     bgColor: '背景顏色',
+    lighting: '光照',
     about: '關於',
     aboutOriginal: '原版專案',
     aboutModified: '本版本修改',
@@ -536,6 +546,7 @@ const ko: Dict = {
     chainsDiffer: '체인마다 다름 (-)',
     noRepr: '(표현 없음)',
     visible: '표시',
+    remove: '삭제',
     color: '색상',
     opacity: '투명도',
     noChains: '체인 없음',
@@ -566,6 +577,7 @@ const ko: Dict = {
     transparent: '투명 배경',
     axes: '축',
     bgColor: '배경색',
+    lighting: '조명',
     about: '정보',
     aboutOriginal: '원본 프로젝트',
     aboutModified: '수정 사항',
@@ -636,6 +648,7 @@ const es: Dict = {
     chainsDiffer: 'Cadenas diferentes (-)',
     noRepr: '(sin representación)',
     visible: 'Visible',
+    remove: 'Eliminar',
     color: 'Color',
     opacity: 'Opacidad',
     noChains: 'No se detectaron cadenas',
@@ -666,6 +679,7 @@ const es: Dict = {
     transparent: 'Fondo transparente',
     axes: 'Ejes',
     bgColor: 'Fondo',
+    lighting: 'Iluminación',
     about: 'Acerca de',
     aboutOriginal: 'Proyecto original',
     aboutModified: 'Modificaciones',
