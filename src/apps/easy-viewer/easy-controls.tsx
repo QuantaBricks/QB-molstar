@@ -66,6 +66,8 @@ const fontFamily = '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, "Ping
 
 const selectArrow = "url(\"data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%236b7280' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E\")";
 
+const StructureFileAccept = '.pdb,.ent,.cif,.mmcif,.bcif,.pdbqt,.sdf,.mol,.mol2,.xyz,.gro,.molj,.molx';
+
 const selectStyle: React.CSSProperties = {
     width: '100%',
     marginTop: 4,
@@ -134,6 +136,23 @@ export function EasyViewport() {
 /** 视口控件：默认控件 + 仅传统界面下保留一个「简易界面」返回按钮 */
 const SeqSvg = () => <svg viewBox='0 0 24 24'><text x='12' y='16.5' textAnchor='middle' fontSize='8.5' fontWeight='700' fill='currentColor' fontFamily='Inter, sans-serif'>SEQ</text></svg>;
 const InfoSvg = () => <svg viewBox='0 0 24 24'><path fill='currentColor' d='M12 2a10 10 0 100 20 10 10 0 000-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z' /></svg>;
+const FileSvg = () => <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'><path d='M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z' /><polyline points='14 2 14 8 20 8' /></svg>;
+
+/** 打开文件询问框：新建（清空当前场景）或添加（追加） */
+function OpenFileDialog({ onPick, onClose }: { onPick: (mode: 'new' | 'add') => void, onClose: () => void }) {
+    return <div className='easy-modal-overlay' onClick={onClose}>
+        <div className='easy-modal' onClick={e => e.stopPropagation()}>
+            <div className='easy-print-header'>
+                <b>{I18n.t('openFile')}</b>
+                <button className='easy-print-close' onClick={onClose} title='×'>×</button>
+            </div>
+            <div style={{ display: 'flex', gap: 12, padding: 18 }}>
+                <Button style={{ flex: 1 }} onClick={() => onPick('new')}>{I18n.t('newFile')}</Button>
+                <Button style={{ flex: 1 }} onClick={() => onPick('add')}>{I18n.t('addFile')}</Button>
+            </div>
+        </div>
+    </div>;
+}
 
 /** 自定义导出面板：已翻译，去掉 Illumination / State */
 function EasyScreenshotPanel() {
@@ -215,7 +234,24 @@ export function EasyViewportControls() {
     const [selectionMode, setSelectionMode] = React.useState(() => plugin.selectionMode);
     const [printExpanded, setPrintExpanded] = React.useState(false);
     const [infoOpen, setInfoOpen] = React.useState(false);
+    const openFileInput = React.useRef<HTMLInputElement>(null);
+    const openFileMode = React.useRef<'new' | 'add'>('new');
+    const [openDialog, setOpenDialog] = React.useState(false);
     const targetedChain = React.useSyncExternalStore(Actions.subscribeTargetedChain, Actions.getTargetedChain);
+
+    const openFile = (mode: 'new' | 'add') => {
+        openFileMode.current = mode;
+        openFileInput.current?.click();
+    };
+    const onOpenClick = () => {
+        if (Actions.hasContent(plugin)) setOpenDialog(true);
+        else openFile('new');
+    };
+    const onOpenFile = (e: React.ChangeEvent<HTMLInputElement>) => {
+        const f = e.target.files?.[0];
+        if (f) Actions.loadStructureFile(plugin, f, openFileMode.current);
+        e.target.value = '';
+    };
 
     React.useEffect(() => {
         const update = () => {
@@ -236,6 +272,7 @@ export function EasyViewportControls() {
 
     return <>
         {!panelVisible && <div className='easy-viewport-controls'>
+            {button(<FileSvg />, I18n.t('openFile'), onOpenClick)}
             {button(<CameraOutlinedSvg />, I18n.t('exportImage'), () => setPrintExpanded(v => !v), printExpanded)}
             {button(<TuneSvg />, I18n.t('setting'), () => Actions.setPanelVisible(plugin, true))}
             {button(<SeqSvg />, I18n.t('sequence'), () => Actions.setSequenceVisible(plugin, !sequenceVisible), sequenceVisible)}
@@ -246,6 +283,8 @@ export function EasyViewportControls() {
                 title={locale === 'zh' ? '切换回简易界面' : locale === 'ja' ? 'シンプルUIに戻る' : 'Switch back to simple UI'}
                 onClick={() => Actions.toggleClassicMode(plugin)}>{I18n.t('simple')}</button>}
         </div>}
+        <input ref={openFileInput} type='file' accept={StructureFileAccept} style={{ display: 'none' }} onChange={onOpenFile} />
+        {openDialog && <OpenFileDialog onPick={mode => { setOpenDialog(false); openFile(mode); }} onClose={() => setOpenDialog(false)} />}
         {targetedChain && <button className='easy-cancel-selection'
             onClick={() => Actions.setTargetedChain(plugin, null)}>{I18n.t('cancelSelection')}</button>}
         {infoOpen && <div className='easy-print-panel'>
@@ -362,6 +401,7 @@ export class EasyControls extends PluginUIComponent<{}, {
     componentDidMount() {
         this.injectStyle();
         this.refreshChains();
+        this.activeSub = Actions.subscribeActiveStructure(this.scheduleUpdate);
         this.subscribe(this.plugin.state.data.events.changed, this.scheduleUpdate);
         this.subscribe(this.plugin.events.canvas3d.settingsUpdated, this.scheduleUpdate);
         this.targetedSub = Actions.subscribeTargetedChain(() => {
@@ -388,9 +428,12 @@ export class EasyControls extends PluginUIComponent<{}, {
     componentWillUnmount() {
         super.componentWillUnmount();
         this.targetedSub?.();
+        this.activeSub?.();
     }
 
     private targetedSub?: () => void;
+    private activeSub?: () => void;
+    private activeStructureKey = '';
 
     /** 放大侧栏字号（给老人看），只作用于本面板 */
     private injectStyle() {
@@ -461,6 +504,32 @@ export class EasyControls extends PluginUIComponent<{}, {
             }
             .easy-print-close:hover { color: #111827; }
             .easy-print-body { padding: 10px 12px; }
+            .easy-modal-overlay {
+                position: fixed; inset: 0; z-index: 100;
+                background: rgba(0,0,0,0.32);
+                display: flex; align-items: center; justify-content: center;
+            }
+            .easy-modal {
+                width: 460px;
+                max-width: calc(100vw - 40px);
+                border-radius: 14px;
+                border: 1px solid #b8bec9;
+                background: #ffffff;
+                box-shadow: 0 8px 30px rgba(0,0,0,0.24);
+                overflow: hidden;
+            }
+            .easy-modal .easy-print-header { padding: 14px 18px; }
+            .easy-modal .easy-print-header b { font-size: 20px; }
+            .easy-modal .msp-btn {
+                font-size: 18px;
+                height: auto;
+                line-height: 1.4;
+                padding: 12px 8px;
+                background: #f3f4f6 !important;
+                color: #1f2937 !important;
+                border: 1px solid #d1d5db;
+            }
+            .easy-modal .msp-btn:hover { background: #e5e7eb !important; }
             .easy-print-panel .msp-image-preview { background: #ffffff !important; }
             .easy-print-panel .msp-btn {
                 font-size: 15px;
@@ -504,8 +573,11 @@ export class EasyControls extends PluginUIComponent<{}, {
     }
 
     private refreshChains() {
+        const key = Actions.getActiveStructureIndex(this.plugin) + ':' + Actions.getAllStructures(this.plugin).length;
         const chains = Actions.getAvailableChains(this.plugin);
-        if (chains.length === this.state.chains.length && chains.every((c, i) => c === this.state.chains[i])) return;
+        const same = key === this.activeStructureKey && chains.length === this.state.chains.length && chains.every((c, i) => c === this.state.chains[i]);
+        if (same) return;
+        this.activeStructureKey = key;
         const chainTypes = Actions.getChainTypes(this.plugin);
         const chainPres = { ...this.state.chainPres };
         for (const c of chains) {
@@ -696,6 +768,12 @@ export class EasyControls extends PluginUIComponent<{}, {
                     style={{ border: 'none', background: 'transparent', cursor: 'pointer', fontSize: 24, lineHeight: 1, color: '#6b7280', padding: '0 8px' }}>×</button>
             </div>
             <div style={{ flex: 1, minHeight: 0, overflowY: 'auto', padding: 8 }}>
+            {Actions.getAllStructures(p).length > 1 && <Section title={I18n.t('files')}>
+                <select style={{ ...selectStyle, marginTop: 0, width: '100%' }} value={Actions.getActiveStructureIndex(p)}
+                    onChange={e => { Actions.setActiveStructure(p, Number(e.target.value)); this.refreshChains(); }}>
+                    {Actions.getAllStructures(p).map((_, i) => <option key={i} value={i}>{Actions.getStructureLabel(p, i)}</option>)}
+                </select>
+            </Section>}
             <Section title={I18n.t('style')}>
                 <div style={gridStyle}>
                     <Button disabled={disabled} style={this.state.baseStyle === 'cartoon' ? selectedButtonStyle : undefined}

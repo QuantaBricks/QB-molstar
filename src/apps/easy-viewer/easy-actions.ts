@@ -11,6 +11,7 @@ import { PluginCommands } from '../../mol-plugin/commands';
 import { produce } from '../../mol-util/produce';
 import { Box3D } from '../../mol-math/geometry';
 import { GlbExporter } from '../../extensions/geo-export/glb-exporter';
+import * as loaders from '../../extensions/plugin/loaders';
 import { StateSelection } from '../../mol-state';
 import { PluginStateObject } from '../../mol-plugin-state/objects';
 import { SetUtils } from '../../mol-util/set';
@@ -57,8 +58,59 @@ export const EasyStyles: [EasyStyle, string][] = [
 
 export const EasyLigandTag = 'qb-ligand';
 
-export function getStructures(plugin: PluginContext) {
+export function getAllStructures(plugin: PluginContext) {
     return plugin.managers.structure.hierarchy.current.structures;
+}
+
+const activeStructureIndex = new WeakMap<PluginContext, number>();
+const activeStructureListeners = new Set<() => void>();
+
+/** 当前选中的结构索引（多个结构时只修改选中的那个） */
+export function getActiveStructureIndex(plugin: PluginContext): number {
+    const all = getAllStructures(plugin);
+    if (all.length === 0) return 0;
+    const i = activeStructureIndex.get(plugin) ?? 0;
+    return Math.min(Math.max(i, 0), all.length - 1);
+}
+
+export function setActiveStructure(plugin: PluginContext, index: number) {
+    activeStructureIndex.set(plugin, index);
+    for (const fn of activeStructureListeners) fn();
+}
+
+export function subscribeActiveStructure(fn: () => void) {
+    activeStructureListeners.add(fn);
+    return () => { activeStructureListeners.delete(fn); };
+}
+
+const structureFileNames = new WeakMap<PluginContext, Map<string, string>>();
+
+function structureFileNameMap(plugin: PluginContext) {
+    let m = structureFileNames.get(plugin);
+    if (!m) { m = new Map(); structureFileNames.set(plugin, m); }
+    return m;
+}
+
+/** 结构名称，用于「Files」列表（优先显示加载时的文件名） */
+export function getStructureLabel(plugin: PluginContext, index: number): string {
+    const s = getAllStructures(plugin)[index];
+    if (!s) return `#${index + 1}`;
+    return structureFileNameMap(plugin).get(s.cell.transform.ref)
+        || s.model?.cell.obj?.label
+        || s.cell.obj?.label
+        || `#${index + 1}`;
+}
+
+/** 当前要修改的结构：只有一个时返回它，多个时只返回选中的那个 */
+export function getStructures(plugin: PluginContext) {
+    const all = getAllStructures(plugin);
+    if (all.length <= 1) return all;
+    return [all[getActiveStructureIndex(plugin)]];
+}
+
+/** 当前场景是否已有结构 */
+export function hasContent(plugin: PluginContext): boolean {
+    return getAllStructures(plugin).length > 0;
 }
 
 /** 是否含配体（非聚合物实体） */
@@ -829,7 +881,7 @@ export function enableAdaptivePerformance(plugin: PluginContext) {
 
     const getSurfaces = () => {
         const refs: any[] = [];
-        for (const s of getStructures(plugin)) {
+        for (const s of getAllStructures(plugin)) {
             for (const comp of s.components) {
                 for (const r of comp.representations) {
                     const tags = r.cell.transform.tags ?? [];
@@ -862,6 +914,17 @@ export function exportState(plugin: PluginContext) {
 /** 加载状态文件（json/zip） */
 export function loadStateFile(plugin: PluginContext, file: File) {
     PluginCommands.State.Snapshots.OpenFile(plugin, { file });
+}
+
+/** 打开本地文件：结构（pdb/mmcif/cif/sdf/mol2/...）与状态文件（.molj/.molx）自动识别。
+ *  mode='new' 先清空当前场景，mode='add' 追加到当前场景。 */
+export async function loadStructureFile(plugin: PluginContext, file: File, mode: 'new' | 'add' = 'new') {
+    if (mode === 'new') await plugin.clear();
+    const result = await loaders.loadFiles(plugin, [file]);
+    const all = getAllStructures(plugin);
+    if (all.length) structureFileNameMap(plugin).set(all[all.length - 1].cell.transform.ref, file.name);
+    setActiveStructure(plugin, mode === 'add' ? all.length - 1 : 0);
+    return result;
 }
 
 /** 导出当前画面几何为 GLB */

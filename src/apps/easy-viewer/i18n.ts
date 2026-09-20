@@ -93,6 +93,10 @@ interface Dict {
     exportGlb: string;
     exportState: string;
     loadState: string;
+    openFile: string;
+    newFile: string;
+    addFile: string;
+    files: string;
     autoCrop: string;
     crop: string;
     resetCrop: string;
@@ -170,6 +174,10 @@ const zh: Dict = {
     exportGlb: '导出 GLB',
     exportState: '导出状态',
     loadState: '加载状态',
+    openFile: '打开文件',
+    newFile: '新建',
+    addFile: '添加',
+    files: 'Files',
     autoCrop: '自动裁剪',
     crop: '裁剪',
     resetCrop: '重置裁剪',
@@ -266,6 +274,10 @@ const en: Dict = {
     exportGlb: 'Export GLB',
     exportState: 'Export state',
     loadState: 'Load state',
+    openFile: 'Open file',
+    newFile: 'New',
+    addFile: 'Add',
+    files: 'Files',
     autoCrop: 'Auto-crop',
     crop: 'Crop',
     resetCrop: 'Reset crop',
@@ -362,6 +374,10 @@ const ja: Dict = {
     exportGlb: 'GLB を書き出す',
     exportState: '状態を書き出す',
     loadState: '状態を読み込む',
+    openFile: 'ファイルを開く',
+    newFile: '新規',
+    addFile: '追加',
+    files: 'Files',
     autoCrop: '自動クロップ',
     crop: 'クロップ',
     resetCrop: 'クロップ解除',
@@ -458,6 +474,10 @@ const zhHant: Dict = {
     exportGlb: '匯出 GLB',
     exportState: '匯出狀態',
     loadState: '載入狀態',
+    openFile: '開啟檔案',
+    newFile: '新建',
+    addFile: '新增',
+    files: 'Files',
     autoCrop: '自動裁剪',
     crop: '裁剪',
     resetCrop: '重置裁剪',
@@ -554,6 +574,10 @@ const ko: Dict = {
     exportGlb: 'GLB 내보내기',
     exportState: '상태 내보내기',
     loadState: '상태 불러오기',
+    openFile: '파일 열기',
+    newFile: '새로 만들기',
+    addFile: '추가',
+    files: 'Files',
     autoCrop: '자동 자르기',
     crop: '자르기',
     resetCrop: '자르기 초기화',
@@ -650,6 +674,10 @@ const es: Dict = {
     exportGlb: 'Exportar GLB',
     exportState: 'Exportar estado',
     loadState: 'Cargar estado',
+    openFile: 'Abrir archivo',
+    newFile: 'Nuevo',
+    addFile: 'Añadir',
+    files: 'Files',
     autoCrop: 'Recorte automático',
     crop: 'Recortar',
     resetCrop: 'Restablecer recorte',
