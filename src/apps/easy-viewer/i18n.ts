@@ -37,6 +37,7 @@ interface Dict {
     style: string;
     flat: string;
     threeD: string;
+    reflective: string;
 
     polymer: string;
     ligand: string;
@@ -125,6 +126,7 @@ const zh: Dict = {
     style: '风格',
     flat: '扁平插画',
     threeD: '3D',
+    reflective: '高反光',
     polymer: 'Polymer样式',
     ligand: '配体样式',
     display: '显示',
@@ -187,6 +189,7 @@ const zh: Dict = {
     resetCrop: '重置裁剪',
     repr: {
         cartoon: 'Ribbon',
+        backbone: 'Tube',
         'ball-and-stick': '球棍',
         spacefill: '填充',
         'molecular-surface': '分子表面',
@@ -227,6 +230,7 @@ const en: Dict = {
     style: 'Style',
     flat: 'Flat',
     threeD: '3D',
+    reflective: 'Reflective',
     polymer: 'Polymer Style',
     ligand: 'Ligand Style',
     display: 'Display',
@@ -289,6 +293,7 @@ const en: Dict = {
     resetCrop: 'Reset crop',
     repr: {
         cartoon: 'Ribbon',
+        backbone: 'Tube',
         'ball-and-stick': 'Ball & Stick',
         spacefill: 'Spacefill',
         'molecular-surface': 'Molecular Surface',
@@ -329,6 +334,7 @@ const ja: Dict = {
     style: 'スタイル',
     flat: 'フラット',
     threeD: '3D',
+    reflective: '高反射',
     polymer: 'ポリマースタイル',
     ligand: 'リガンドスタイル',
     display: '表示',
@@ -391,6 +397,7 @@ const ja: Dict = {
     resetCrop: 'クロップ解除',
     repr: {
         cartoon: 'Ribbon',
+        backbone: 'Tube',
         'ball-and-stick': 'ボール＆スティック',
         spacefill: '空間充填',
         'molecular-surface': '分子表面',
@@ -431,6 +438,7 @@ const zhHant: Dict = {
     style: '風格',
     flat: '扁平插畫',
     threeD: '3D',
+    reflective: '高反光',
     polymer: 'Polymer樣式',
     ligand: '配體樣式',
     display: '顯示',
@@ -493,6 +501,7 @@ const zhHant: Dict = {
     resetCrop: '重置裁剪',
     repr: {
         cartoon: 'Ribbon',
+        backbone: 'Tube',
         'ball-and-stick': '球棍',
         spacefill: '填充',
         'molecular-surface': '分子表面',
@@ -533,6 +542,7 @@ const ko: Dict = {
     style: '스타일',
     flat: '플랫',
     threeD: '3D',
+    reflective: '고반사',
     polymer: '폴리머 스타일',
     ligand: '리간드 스타일',
     display: '표시',
@@ -595,6 +605,7 @@ const ko: Dict = {
     resetCrop: '자르기 초기화',
     repr: {
         cartoon: 'Ribbon',
+        backbone: 'Tube',
         'ball-and-stick': '볼 앤 스틱',
         spacefill: '공간 채움',
         'molecular-surface': '분자 표면',
@@ -635,6 +646,7 @@ const es: Dict = {
     style: 'Estilo',
     flat: 'Plano',
     threeD: '3D',
+    reflective: 'Reflectante',
     polymer: 'Estilo polímero',
     ligand: 'Estilo ligando',
     display: 'Visualización',
@@ -697,6 +709,7 @@ const es: Dict = {
     resetCrop: 'Restablecer recorte',
     repr: {
         cartoon: 'Cinta',
+        backbone: 'Tube',
         'ball-and-stick': 'Bolas y varillas',
         spacefill: 'Esferas',
         'molecular-surface': 'Superficie molecular',

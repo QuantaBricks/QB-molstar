@@ -12,8 +12,9 @@ import { PluginContext } from '../../mol-plugin/context';
 import { Bond, StructureElement, StructureProperties } from '../../mol-model/structure';
 import { MolScriptBuilder as MS } from '../../mol-script/language/builder';
 import { Color } from '../../mol-util/color';
+import { StructureFocusRepresentation } from '../../mol-plugin/behavior/dynamic/selection/structure-focus-representation';
 
-const LigandNeighborhoodKey = 'easy-ligand-neighborhood';
+const FocusLabelsKey = 'easy-focus-labels';
 
 export interface LabelStyle {
     /** 文字颜色 */
@@ -27,7 +28,7 @@ export interface LabelStyle {
 }
 
 const labelStyle: LabelStyle = {
-    color: 0x17324d,
+    color: 0x000000,
     backgroundColor: 0xffffff,
     backgroundOpacity: 0,
     scale: 0.65,
@@ -45,12 +46,15 @@ function labelTypeParams() {
         backgroundMargin: 0.2,
         backgroundColor: Color(labelStyle.backgroundColor),
         backgroundOpacity: labelStyle.backgroundOpacity,
-        borderWidth: 0.08,
+        borderWidth: 0,
         ignoreHydrogens: true,
+        // 字体图集分辨率最高档（64*(quality+1)px 字形），减少放大时的模糊
+        fontQuality: 4,
+        fontWeight: 'normal' as const,
     };
 }
 
-function addLabelRepresentation(plugin: PluginContext, component: any) {
+export function addLabelRepresentation(plugin: PluginContext, component: any) {
     return plugin.builders.structure.representation.addRepresentation(component, {
         type: 'label',
         typeParams: labelTypeParams(),
@@ -102,8 +106,14 @@ function residueKey(loc: StructureElement.Location) {
     return [loc.unit.model.id, loc.unit.id, StructureProperties.residue.key(loc)].join(':');
 }
 
-/** 点击配体 → 附近聚合物残基标签 */
-function installLigandNeighborhood(plugin: PluginContext, radius = 4) {
+/** 焦点半径：读取 StructureFocusRepresentation 的 expandRadius，保证与高亮一致 */
+function focusRadius(plugin: PluginContext): number {
+    const params = plugin.state.behaviors.cells.get(StructureFocusRepresentation.id)?.transform.params as any;
+    return typeof params?.expandRadius === 'number' ? params.expandRadius : 3;
+}
+
+/** 与高亮 focus 同步：焦点变化时给焦点周边的完整残基显示标签 */
+function installFocusLabels(plugin: PluginContext) {
     let componentRef: string | undefined;
     let activeKey: string | null = null;
     let disposed = false;
@@ -116,41 +126,35 @@ function installLigandNeighborhood(plugin: PluginContext, radius = 4) {
         await deleteRef(plugin, ref);
     };
 
-    const update = async (current: any) => {
+    const update = async (entry: any) => {
         if (disposed) return;
-        let loci = current?.loci;
+        let loci = entry?.loci;
         if (Bond.isLoci(loci)) loci = Bond.toStructureElementLoci(loci);
         if (!StructureElement.Loci.is(loci) || StructureElement.Loci.isEmpty(loci)) { await clear(); return; }
 
         const firstLocation = StructureElement.Loci.getFirstLocation(loci);
         if (!firstLocation) { await clear(); return; }
-        const entityType = StructureProperties.entity.type(firstLocation);
-        if (entityType === 'polymer' || entityType === 'water') { await clear(); return; }
 
         const parent = plugin.helpers.substructureParent.get(loci.structure);
         const parentStructure = parent?.obj?.data;
         if (!parent || !parentStructure) return;
 
-        const ligandLoci = StructureElement.Loci.extendToWholeResidues(StructureElement.Loci.remap(loci, parentStructure));
-        const ligandLocation = StructureElement.Loci.getFirstLocation(ligandLoci);
-        if (!ligandLocation) { await clear(); return; }
+        const radius = focusRadius(plugin);
+        const key = residueKey(firstLocation) + ':' + radius;
+        if (key === activeKey && componentRef) return;
 
-        const key = residueKey(ligandLocation);
-        if (key === activeKey) { await clear(); return; }
-
-        const ligandExpression = StructureElement.Loci.toExpression(ligandLoci);
-        const polymerExpression = MS.struct.generator.atomGroups({
+        const target = StructureElement.Loci.toExpression(StructureElement.Loci.extendToWholeResidues(StructureElement.Loci.remap(loci, parentStructure)));
+        const surroundings = MS.struct.modifier.includeSurroundings({ 0: target, radius, 'as-whole-residues': true });
+        // 只给聚合物残基打标签（不显示配体/水/离子的名字）
+        const polymer = MS.struct.generator.atomGroups({
             'entity-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.entityType(), 'polymer'])
         });
-        const nearbyExpression = MS.struct.modifier.intersectBy({
-            0: MS.struct.modifier.includeSurroundings({ 0: ligandExpression, radius, 'as-whole-residues': true }),
-            by: polymerExpression
-        });
+        const labelsExpression = MS.struct.modifier.intersectBy({ 0: surroundings, by: polymer });
 
         await clear();
         if (disposed) return;
         const component = await plugin.builders.structure.tryCreateComponentFromExpression(
-            parent, nearbyExpression, LigandNeighborhoodKey, { label: `Ligand neighborhood (${radius} A)` }
+            parent, labelsExpression, FocusLabelsKey, { label: `Focus labels (${radius} A)` }
         );
         if (!component || disposed) return;
         componentRef = component.ref;
@@ -158,25 +162,25 @@ function installLigandNeighborhood(plugin: PluginContext, radius = 4) {
         await addLabelRepresentation(plugin, component);
     };
 
-    const sub = plugin.behaviors.interaction.click.subscribe(({ current }: any) => {
-        queue = queue.then(() => update(current)).catch(err => console.warn('Ligand neighborhood:', err));
+    const sub = plugin.managers.structure.focus.behaviors.current.subscribe((entry: any) => {
+        queue = queue.then(() => update(entry)).catch(err => console.warn('Focus labels:', err));
     });
 
     return { dispose() { disposed = true; sub.unsubscribe(); void clear(); } };
 }
 
 interface ResidueLabelState {
-    ligand?: { dispose: () => void };
+    focus?: { dispose: () => void };
 }
 
 const states = new WeakMap<PluginContext, ResidueLabelState>();
 
-/** 安装：点击配体显示附近残基标签 */
+/** 安装：焦点周边残基标签（标签表示由 focus-visuals 的组件负责，这里不再单独建组件） */
 export function setupResidueLabels(plugin: PluginContext) {
     let s = states.get(plugin);
     if (!s) {
         s = {};
         states.set(plugin, s);
     }
-    s.ligand = installLigandNeighborhood(plugin);
+    void installFocusLabels;
 }

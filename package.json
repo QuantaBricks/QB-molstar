@@ -25,7 +25,7 @@
     "build:lib": "concurrently \"tsc --incremental\" \"tsc --build tsconfig.commonjs.json --incremental\" && npm run build:lib-extra",
     "build:lib-extra": "node scripts/write-version.mjs && cpx \"src/**/*.{scss,html,ico,jpg}\" lib/ && cpx \"src/**/*.{scss,html,ico,jpg}\" lib/commonjs/ && tsc-alias -p tsconfig.json",
     "rebuild": "npm run clean && npm run build",
-    "dev": "node ./scripts/build.mjs",
+    "dev": "node ./scripts/build.mjs -a easy-viewer",
     "dev:all": "node ./scripts/build.mjs -a -e -bt",
     "dev:viewer": "node ./scripts/build.mjs -a viewer",
     "dev:apps": "node ./scripts/build.mjs -a",

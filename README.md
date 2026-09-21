@@ -6,6 +6,47 @@ A fork of [Mol\*](https://github.com/molstar/molstar) that adds a friendly, loca
 Mol\* core is **not modified**; everything new lives in `src/apps/easy-viewer/`
 (plus one registry line in `scripts/build.mjs`).
 
+## 安装 & 使用（默认就是 easy-viewer 简易界面）
+
+> 本项目的默认 UI 就是 **easy-viewer**；原生 Mol\* 界面可通过面板底部「Classic」切换。
+
+### 方式 A：作为依赖包（在别的项目里用）
+
+```bash
+npm install <本仓库>            # 或 git+https://…/molstar-qb.git
+npm run build:lib               # 首次需要，生成 lib/
+```
+
+```ts
+import { EasyViewer } from 'molstar/lib/apps/easy-viewer';
+
+const viewer = await EasyViewer.create('app');   // 默认即简易界面
+await viewer.loadPdb('1hsg');
+await viewer.present('polymer-and-ligand', 'sequence-id');
+```
+
+### 方式 B：直接用构建产物（`<script>`，任何项目）
+
+```bash
+node ./scripts/build.mjs -a easy-viewer --prd   # 生成 build/easy-viewer/
+```
+
+```html
+<link rel="stylesheet" href="./molstar.css">
+<div id="app"></div>
+<script src="./molstar.js"></script>
+<script>
+  molstar.EasyViewer.create('app').then(v => v.loadPdb('1hsg'));  // 默认即简易界面
+</script>
+```
+
+### 方式 C：本地开发（默认构建 easy-viewer）
+
+```bash
+npm install
+npm run dev        # → http://localhost:1338/build/easy-viewer/index.html
+```
+
 ## Origin & Credits
 
 - **Original project:** **Mol\*** (MolStar) — developed by David Sehnal, Alexander Rose and Mol\* contributors.

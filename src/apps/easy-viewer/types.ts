@@ -29,6 +29,7 @@ export type EasyStyle =
 /** 表示类型（Mol* representation type） */
 export type EasyRepresentationType =
     | 'cartoon'
+    | 'backbone'
     | 'ball-and-stick'
     | 'spacefill'
     | 'molecular-surface'
@@ -46,6 +47,8 @@ export interface RepresentationLayer {
     colorOptions?: EasyViewerColorOptions;
     /** 透明度，surface 类常用 */
     alpha?: number;
+    /** 大小（sizeTheme.scale） */
+    size?: number;
     /** 是否可见，默认 true */
     visible?: boolean;
 }

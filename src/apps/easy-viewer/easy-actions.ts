@@ -18,7 +18,6 @@ import { SetUtils } from '../../mol-util/set';
 import { Task } from '../../mol-task';
 import { download } from '../../mol-util/download';
 import { PresetStructureRepresentations } from '../../mol-plugin-state/builder/structure/representation-preset';
-import { StructureFocusRepresentation } from '../../mol-plugin/behavior/dynamic/selection/structure-focus-representation';
 import { Color } from '../../mol-util/color';
 import { ParamDefinition as PD } from '../../mol-util/param-definition';
 import { OutlineParams } from '../../mol-canvas3d/passes/outline';
@@ -32,9 +31,12 @@ import { ChainPalettes, RainbowPalettes } from './palettes';
 import { ChainPresentation, EasyColorTheme, EasyRepresentationType, EasyStyle, EasyViewerColorOptions, HydrogenMode, PharmacophorePoint, Pocket, RepresentationLayer } from './types';
 import { showPharmacophore, PharmacophoreHandle } from './overlay-pharmacophore';
 import { showPockets, PocketHandle } from './overlay-pocket';
+import { setLabelColor } from './residue-labels';
+import { Interactions } from '../../mol-model-props/computed/interactions/interactions';
 
 export type { EasyColorTheme, EasyRepresentationType, EasyStyle, HydrogenMode } from './types';
 export { setupResidueLabels, getLabelStyle, setLabelScale, setLabelColor, setLabelBackgroundColor, setLabelBackgroundOpacity } from './residue-labels';
+export { setupFocusVisuals, setInteractionsVisible, areInteractionsVisible, subscribeInteractionsVisible, setHighlightScale, setInteractionLineScale, getHighlightScale, getInteractionLineScale, getHighlightMode, setHighlightMode } from './focus-visuals';
 
 export const EasyColorThemes: [EasyColorTheme, string][] = [
     ['element-symbol', '元素'],
@@ -122,13 +124,16 @@ export function getStructures(plugin: PluginContext) {
 }
 
 /** 当前场景是否已有结构 */
-export function hasContent(plugin: PluginContext): boolean {
-    return getAllStructures(plugin).length > 0;
+/** 当前是否有 focus 高亮（点了 ligand/residue） */
+export function hasFocusHighlight(plugin: PluginContext): boolean {
+    return !!plugin.managers.structure.focus.behaviors.current.value;
+}
+
+export function hasContent(plugin: PluginContext): boolean {    return getAllStructures(plugin).length > 0;
 }
 
 /** 是否含配体（非聚合物实体） */
-export function hasLigands(plugin: PluginContext): boolean {
-    for (const s of getStructures(plugin)) {
+export function hasLigands(plugin: PluginContext): boolean {    for (const s of getStructures(plugin)) {
         const model = s.cell.obj?.data?.model;
         if (!model?.entities) continue;
         const types = model.entities.data.type;
@@ -182,6 +187,7 @@ export function getLigandLayers(plugin: PluginContext): RepresentationLayer[] {
             color: params?.colorTheme?.name ?? 'element-symbol',
             colorOptions: params?.colorTheme?.params,
             alpha: typeParams.alpha,
+            size: params?.sizeTheme?.params?.scale,
             visible: !repr.cell.state.isHidden,
         });
     }
@@ -210,15 +216,19 @@ export async function addLigandLayer(plugin: PluginContext, type: EasyRepresenta
     }, { canUndo: 'Add Ligand Layer' });
 }
 
-/** 移除一个配体表示（隐藏，重新添加可恢复） */
-export function removeLigandLayer(plugin: PluginContext, type: EasyRepresentationType) {
-    const refs = ligandReprs(plugin, type).map(e => e.repr);
-    if (refs.length > 0) plugin.managers.structure.hierarchy.toggleVisibility(refs, 'hide');
+/** 移除一个配体表示（删除） */
+export async function removeLigandLayer(plugin: PluginContext, type: EasyRepresentationType) {
+    const refs = ligandReprs(plugin, type).map(e => e.repr.cell.transform.ref);
+    if (refs.length === 0) return;
+    const b = plugin.build();
+    for (const ref of refs) b.delete(ref);
+    await b.commit({ canUndo: 'Remove Ligand Layer' });
 }
 
 export function setLigandLayerVisible(plugin: PluginContext, type: EasyRepresentationType, visible: boolean) {
-    const refs = ligandReprs(plugin, type).map(e => e.repr);
-    if (refs.length > 0) plugin.managers.structure.hierarchy.toggleVisibility(refs, visible ? 'show' : 'hide');
+    for (const { repr } of ligandReprs(plugin, type)) {
+        plugin.state.data.updateCellState(repr.cell.transform.ref, { isHidden: !visible });
+    }
 }
 
 /** 原地改配体层颜色，不重建几何 */
@@ -242,6 +252,20 @@ export async function updateLigandLayerAlpha(plugin: PluginContext, type: EasyRe
         });
     }
     await update.commit({ canUndo: 'Ligand Alpha' });
+}
+
+/** 配体层大小（球棍/填充等的 sizeTheme.scale） */
+export async function updateLigandLayerSize(plugin: PluginContext, type: EasyRepresentationType, size: number) {
+    const update = plugin.build();
+    for (const { repr } of ligandReprs(plugin, type)) {
+        update.to(repr.cell).update(old => {
+            const p = old as any;
+            if (!p.sizeTheme) p.sizeTheme = { name: 'physical', params: {} };
+            if (!p.sizeTheme.params) p.sizeTheme.params = {};
+            p.sizeTheme.params.scale = size;
+        });
+    }
+    await update.commit({ canUndo: 'Ligand Size' });
 }
 
 /** 检测已加载结构里的聚合物链（label_asym_id） */
@@ -301,18 +325,25 @@ const StyleAppearance: { [K in EasyStyle]: boolean } = {
     'coarse-surface': true,
 };
 
-export type BaseStyle = 'cartoon' | '3d';
+export type BaseStyle = 'cartoon' | '3d' | 'reflective';
+
+const DefaultMaterial = { metalness: 0, roughness: 1, bumpiness: 0 };
+const ReflectiveMaterial = { metalness: 0.6, roughness: 0.15, bumpiness: 0 };
+export const DefaultLightIntensity = 0.6;
+export const ReflectiveLightIntensity = 2.0;
 
 /**
- * 二选一渲染风格（表示相同，只是外观不同）：
- * - 'cartoon' 卡通：插画风（平光 + 描边）
- * - '3d'      3D：写实（正常光照 + 高光）
+ * 三选一渲染风格（表示相同，只是外观不同）：
+ * - 'cartoon'    卡通：插画风（平光 + 描边）
+ * - '3d'         3D：写实（正常光照 + 哑光）
+ * - 'reflective' 高反光：金属感（低粗糙度 + 高金属度 + 更强光照）
  * 返回外观是否插画风，供 UI 同步。
  */
 export async function setBaseStyle(plugin: PluginContext, mode: BaseStyle): Promise<boolean> {
     // 只切换外观，不重建表示，避免覆盖用户已调好的样式
     const illustrative = mode === 'cartoon';
-    await setIllustrative(plugin, illustrative);
+    await setIllustrative(plugin, illustrative, mode === 'reflective' ? ReflectiveMaterial : DefaultMaterial);
+    setLightIntensity(plugin, mode === 'reflective' ? ReflectiveLightIntensity : DefaultLightIntensity);
     return illustrative;
 }
 
@@ -354,11 +385,17 @@ async function addChainPresentationFor(plugin: PluginContext, structure: ReturnT
             ? { quality: currentSurfaceQuality(), ...(layer.alpha !== undefined ? { alpha: layer.alpha } : {}) }
             : (layer.alpha !== undefined ? { alpha: layer.alpha } : undefined);
 
+        const isTube = layer.type === 'backbone';
+        const reprType: any = isTube ? 'cartoon' : layer.type;
+        const reprTypeParams = isTube
+            ? { ...(layer.alpha !== undefined ? { alpha: layer.alpha } : {}), visuals: ['polymer-trace'] }
+            : typeParams;
+
         const repr = await plugin.builders.structure.representation.addRepresentation(comp, {
-            type: layer.type as any,
+            type: reprType,
             color,
             colorParams: colorThemeParams(color, layer.colorOptions),
-            typeParams,
+            typeParams: reprTypeParams,
         }, { tag: `qb-chain-repr-${pres.chain}-${layer.type}` });
 
         if (repr) {
@@ -541,11 +578,17 @@ export function setWaterVisible(plugin: PluginContext, visible: boolean) {
     }
 }
 
-export function setHydrogens(plugin: PluginContext, mode: HydrogenMode) {
-    if (!plugin.state.hasBehavior(StructureFocusRepresentation)) return;
-    plugin.state.updateBehavior(StructureFocusRepresentation, p => {
-        p.ignoreHydrogens = mode !== 'all';
-        p.ignoreHydrogensVariant = mode === 'polar' ? 'non-polar' : 'all';
+const HydrogenOption: { [K in HydrogenMode]: 'all' | 'hide-all' | 'only-polar' } = {
+    none: 'hide-all',
+    polar: 'only-polar',
+    all: 'all',
+};
+
+/** 氢原子显示：写入组件管理器选项，作用于所有表示（含之后新加载的结构） */
+export async function setHydrogens(plugin: PluginContext, mode: HydrogenMode) {
+    await plugin.managers.structure.component.setOptions({
+        ...plugin.managers.structure.component.state.options,
+        hydrogens: HydrogenOption[mode],
     });
 }
 
@@ -698,6 +741,31 @@ export function setupLociLabels(plugin: PluginContext) {
     plugin.managers.lociLabels.addProvider({
         priority: 200,
         label: (loci: Loci) => {
+            // 悬停到相互作用（虚线）上：显示相互作用类型 + 距离
+            if (Interactions.isLoci(loci as any)) {
+                const l = loci as any;
+                try {
+                    const element = l.elements?.[0];
+                    if (!element) return undefined;
+                    const structure = l.data.structure;
+                    const inter = l.data.interactions;
+                    const type = Interactions.locationLabel(Interactions.Location(inter, structure, element.unitA, element.indexA, element.unitB, element.indexB));
+                    let dist = '';
+                    const fA = inter.unitsFeatures.get(element.unitA.id);
+                    const fB = inter.unitsFeatures.get(element.unitB.id);
+                    if (fA && fB) {
+                        const pA = Vec3(), pB = Vec3();
+                        const uA = structure.unitMap.get(element.unitA.id);
+                        const uB = structure.unitMap.get(element.unitB.id);
+                        uA.conformation.position(uA.elements[fA.members[fA.offsets[element.indexA]]], pA);
+                        uB.conformation.position(uB.elements[fB.members[fB.offsets[element.indexB]]], pB);
+                        dist = `  ${Vec3.distance(pA, pB).toFixed(2)} Å`;
+                    }
+                    return `${type}${dist}`;
+                } catch {
+                    return undefined;
+                }
+            }
             if (!StructureElement.Loci.is(loci)) return undefined;
             const first = loci.elements[0];
             if (!first) return undefined;
@@ -722,8 +790,10 @@ const CheapOcclusionParams = {
 };
 
 type PostKey = 'outline' | 'shadow' | 'occlusion';
+/** 描边不包含透明对象：避免把半透明文字（标签）也描边而显得粗/糊 */
+const OutlineOnParams = { ...PD.getDefaultValues(OutlineParams), includeTransparent: false };
 const DefaultPostParams: { [K in PostKey]: any } = {
-    outline: PD.getDefaultValues(OutlineParams),
+    outline: OutlineOnParams,
     shadow: PD.getDefaultValues(ShadowParams),
     occlusion: CheapOcclusionParams,
 };
@@ -746,17 +816,18 @@ export function setOcclusion(plugin: PluginContext, on: boolean) { setPostproces
 export function isOcclusionOn(plugin: PluginContext) { return plugin.canvas3d?.props.postprocessing.occlusion.name === 'on'; }
 
 /** 插画风：平光(ignoreLight) + 描边/遮蔽后处理，卡通看起来像 illustrative */
-export async function setIllustrative(plugin: PluginContext, on: boolean) {
+export async function setIllustrative(plugin: PluginContext, on: boolean, materialStyle?: any) {
     await plugin.managers.structure.component.setOptions({
         ...plugin.managers.structure.component.state.options,
         ignoreLight: on,
+        ...(materialStyle ? { materialStyle } : {}),
     });
 
     if (!plugin.canvas3d) return;
     // 明暗通道（遮蔽 SSAO）默认开，描边默认开
     plugin.canvas3d.setProps({
         postprocessing: {
-            outline: { name: 'on', params: PD.getDefaultValues(OutlineParams) },
+            outline: { name: 'on', params: OutlineOnParams },
             occlusion: { name: 'on', params: CheapOcclusionParams },
             shadow: { name: 'off', params: {} },
         },
@@ -963,8 +1034,14 @@ export function exportGlb(plugin: PluginContext) {
     return plugin.runTask(task, { useOverlay: true });
 }
 
+/** 深色背景 → 白字，浅色背景 → 黑字（WCAG 相对亮度，阈值 0.5） */
+export function autoLabelColor(bg: Color): number {
+    return Color.luminance(bg) < 0.5 ? 0xffffff : 0x000000;
+}
+
 export function setBackground(plugin: PluginContext, color: Color) {
     plugin.canvas3d?.setProps({ renderer: { backgroundColor: color } });
+    void setLabelColor(plugin, autoLabelColor(color));
 }
 
 /** 光照强度（主光源 intensity） */
@@ -976,6 +1053,7 @@ export function setLightIntensity(plugin: PluginContext, intensity: number) {
     const light = plugin.canvas3d?.props.renderer.light;
     if (!light || light.length === 0) return;
     plugin.canvas3d?.setProps({ renderer: { light: [{ ...light[0], intensity }] } });
+    plugin.events.canvas3d.settingsUpdated.next(void 0);
 }
 
 //

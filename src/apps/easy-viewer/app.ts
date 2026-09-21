@@ -219,8 +219,16 @@ export class EasyViewer extends Viewer {
         // 点击配体显示附近残基标签 + 悬停残基标签
         Actions.setupResidueLabels(plugin);
 
+        // focus 时高亮周边残基 + 配体-残基相互作用（不显示残基-残基）
+        Actions.setupFocusVisuals(plugin);
+
+        // 默认只显示极性氢（与面板默认一致）
+        void Actions.setHydrogens(plugin, 'polar');
+
         plugin.state.updateBehavior(StructureFocusRepresentation, p => {
             p.expandRadius = 3;
+            // 高亮/相互作用由 easy-viewer 自己控制（focus-visuals），内置组件全关
+            p.components = [];
             p.surroundingsParams.colorTheme = { name: 'element-symbol', params: { carbonColor: { name: 'element-symbol', params: {} } } };
             p.surroundingsParams.sizeTheme = {
                 ...p.surroundingsParams.sizeTheme,

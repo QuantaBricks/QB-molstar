@@ -27,6 +27,7 @@ import { ChainPresentation, EasyColorTheme, EasyRepresentationType, EasyViewerCo
 
 const Representations: EasyRepresentationType[] = [
     'cartoon',
+    'backbone',
     'ball-and-stick',
     'spacefill',
     'molecular-surface',
@@ -66,7 +67,7 @@ const grid3Style: React.CSSProperties = { display: 'grid', gridTemplateColumns: 
 const rowStyle: React.CSSProperties = { display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' };
 const fontFamily = '"Inter", system-ui, -apple-system, "Segoe UI", Roboto, "PingFang SC", "Microsoft YaHei", sans-serif';
 
-const selectArrow = "url(\"data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6' viewBox='0 0 10 6'%3E%3Cpath fill='%236b7280' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E\")";
+const selectArrow = "url(\"data:image/svg+xml;charset=utf-8,%3Csvg xmlns='http://www.w3.org/2000/svg' width='14' height='9' viewBox='0 0 10 6'%3E%3Cpath fill='%236b7280' d='M0 0l5 6 5-6z'/%3E%3C/svg%3E\")";
 
 const StructureFileAccept = '.pdb,.ent,.cif,.mmcif,.bcif,.pdbqt,.sdf,.mol,.mol2,.xyz,.gro,.molj,.molx';
 
@@ -99,7 +100,7 @@ const fileRowStyle: React.CSSProperties = { display: 'flex', alignItems: 'center
 const fileRowActiveStyle: React.CSSProperties = { borderColor: '#3b82f6', background: '#e0edff' };
 const fileNameStyle: React.CSSProperties = { flex: 1, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', fontSize: 14 };
 const removeButtonStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, border: 'none', background: 'transparent', cursor: 'pointer', color: '#9ca3af', borderRadius: 6, padding: 0 };
-const collapseButtonStyle: React.CSSProperties = { border: 'none', background: 'transparent', cursor: 'pointer', color: '#6b7280', fontSize: 13, lineHeight: 1, padding: '0 2px' };
+const collapseButtonStyle: React.CSSProperties = { border: 'none', background: 'transparent', cursor: 'pointer', color: '#6b7280', fontSize: 16, lineHeight: 1, padding: '0 2px' };
 
 /** 视口：与默认视口一致，但没有多帧（trajectory）时隐藏动画控件 */
 export function EasyViewport() {
@@ -150,7 +151,7 @@ const EyeSvg = () => <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' 
 const EyeOffSvg = () => <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'><path d='M17.94 17.94A10.07 10.07 0 0112 20c-7 0-11-8-11-8a18.45 18.45 0 015.06-5.94M9.9 4.24A9.12 9.12 0 0112 4c7 0 11 8 11 8a18.5 18.5 0 01-2.16 3.19m-6.72-1.07a3 3 0 11-4.24-4.24' /><line x1='1' y1='1' x2='23' y2='23' /></svg>;
 const TrashSvg = () => <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'><polyline points='3 6 5 6 21 6' /><path d='M19 6l-1 14a2 2 0 01-2 2H8a2 2 0 01-2-2L5 6' /><path d='M10 11v6M14 11v6' /><path d='M9 6V4a1 1 0 011-1h4a1 1 0 011 1v2' /></svg>;
 const ChevronSvg = ({ collapsed }: { collapsed: boolean }) =>
-    <svg width='10' height='6' viewBox='0 0 10 6' style={{ flexShrink: 0, transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.12s' }}>
+        <svg width='14' height='9' viewBox='0 0 10 6' style={{ flexShrink: 0, transform: collapsed ? 'rotate(-90deg)' : 'none', transition: 'transform 0.12s' }}>
         <path fill='currentColor' d='M0 0l5 6 5-6z' />
     </svg>;
 
@@ -360,7 +361,7 @@ export function EasyViewportControls() {
 }
 
 function Section({ title, children }: { title: React.ReactNode, children: React.ReactNode }) {
-    const [collapsed, setCollapsed] = React.useState(false);
+    const [collapsed, setCollapsed] = React.useState(true);
     return <div className='easy-section'>
         <button type='button' className='easy-section-title' onClick={() => setCollapsed(v => !v)}>
             <ChevronSvg collapsed={collapsed} />
@@ -393,7 +394,7 @@ export class EasyControls extends PluginUIComponent<{}, {
     perChainActive: boolean,
     chainTarget: string,
     illustrative: boolean,
-    baseStyle: 'cartoon' | '3d' | null,
+    baseStyle: Actions.BaseStyle | null,
     labelColor: number,
     labelBgColor: number,
     labelBgOpacity: number,
@@ -419,8 +420,8 @@ export class EasyControls extends PluginUIComponent<{}, {
         perChainActive: false,
         chainTarget: 'all',
         illustrative: false,
-        baseStyle: '3d' as 'cartoon' | '3d' | null,
-        labelColor: 0x17324d,
+        baseStyle: '3d' as Actions.BaseStyle | null,
+        labelColor: 0x000000,
         labelBgColor: 0xffffff,
         labelBgOpacity: 0,
         labelScale: 0.65,
@@ -441,7 +442,11 @@ export class EasyControls extends PluginUIComponent<{}, {
         requestAnimationFrame(() => {
             this.pendingUpdate = false;
             this.refreshChains();
-            this.forceUpdate();
+        this.setState({
+            lightIntensity: Actions.getLightIntensity(this.plugin),
+            labelColor: Actions.getLabelStyle().color,
+            bgColor: (this.plugin.canvas3d?.props.renderer.backgroundColor as number) ?? 0xffffff,
+        });
         });
     };
 
@@ -468,7 +473,7 @@ export class EasyControls extends PluginUIComponent<{}, {
                 Actions.setTargetedChain(this.plugin, chain, false);
             }
         };
-        this.subscribe(this.plugin.managers.structure.focus.behaviors.current, (focus: any) => switchToLoci(focus?.loci));
+        this.subscribe(this.plugin.managers.structure.focus.behaviors.current, (focus: any) => { switchToLoci(focus?.loci); this.scheduleUpdate(); });
         this.subscribe(this.plugin.managers.structure.selection.events.changed, () => {
             this.plugin.managers.structure.selection.entries.forEach((entry: any) => switchToLoci(entry.selection));
         });
@@ -818,7 +823,7 @@ export class EasyControls extends PluginUIComponent<{}, {
     }
 
     /** 表示层卡片（聚合物 / 配体共用） */
-    private renderLayer(layer: RepresentationLayer, index: number, collapseKey: string, onVisible: (v: boolean) => void, onRemove: () => void, onAlpha: (a: number) => void) {
+    private renderLayer(layer: RepresentationLayer, index: number, collapseKey: string, onVisible: (v: boolean) => void, onRemove: () => void, onAlpha: (a: number) => void, onSize?: (s: number) => void) {
         const isSurface = layer.type === 'molecular-surface' || layer.type === 'gaussian-surface';
         const collapsed = !!this.state.collapsed[collapseKey];
         return <div key={layer.type} style={layerBoxStyle}>
@@ -838,6 +843,13 @@ export class EasyControls extends PluginUIComponent<{}, {
                     onChange={e => onAlpha(parseFloat(e.target.value))} />
                 <span style={numStyle}>{(layer.alpha ?? 1).toFixed(2)}</span>
             </PropRow>}
+            {!collapsed && onSize && <div style={{ ...rowStyle, marginTop: 2 }}>
+                <small style={{ minWidth: 40 }}>Size</small>
+                <input type="range" min={0.2} max={3} step={0.05} value={layer.size ?? 1}
+                    style={{ flex: 1 }}
+                    onChange={e => onSize(parseFloat(e.target.value))} />
+                <span style={numStyle}>{(layer.size ?? 1).toFixed(2)}</span>
+            </div>}
         </div>;
     }
 
@@ -872,7 +884,7 @@ export class EasyControls extends PluginUIComponent<{}, {
             </Section>}
             <Section title={I18n.t('style')}>
                 <Segmented value={this.state.baseStyle ?? ''} disabled={disabled}
-                    options={[['cartoon', I18n.t('flat')], ['3d', I18n.t('threeD')]]}
+                    options={[['cartoon', I18n.t('flat')], ['3d', I18n.t('threeD')], ['reflective', I18n.t('reflective')]]}
                     onChange={v => this.run(async () => {
                         this.setState({ baseStyle: v as Actions.BaseStyle, illustrative: v === 'cartoon' });
                         await Actions.setBaseStyle(p, v as Actions.BaseStyle);
@@ -974,10 +986,16 @@ export class EasyControls extends PluginUIComponent<{}, {
                         v => this.run(() => Actions.setLigandLayerVisible(p, layer.type, v)),
                         () => this.run(() => Actions.removeLigandLayer(p, layer.type)),
                         a => this.setLigandAlphaDebounced(layer.type, a),
+                        s => this.run(() => Actions.updateLigandLayerSize(p, layer.type, s)),
                     ));
                 })()}
             </Section>}
 
+            {Actions.hasFocusHighlight(p) && <Section title='Interaction'>
+                <Segmented value={Actions.getHighlightMode()} disabled={disabled}
+                    options={[['ball-and-stick', 'Ball & Stick'], ['line', 'Line']]}
+                    onChange={v => this.run(async () => { await Actions.setHighlightMode(p, v as any); this.forceUpdate(); })} />
+            </Section>}
             <Section title={I18n.t('display')}>
                 <div style={gridStyle}>
                     <Button disabled={disabled} style={this.state.waterVisible ? selectedButtonStyle : undefined}
@@ -1088,10 +1106,10 @@ export class EasyControls extends PluginUIComponent<{}, {
                 <div style={{ ...rowStyle, flexWrap: 'nowrap' }}>
                     <small style={{ minWidth: 48 }}>{I18n.t('bgColor')}</small>
                     <input type="color" value={'#' + this.state.bgColor.toString(16).padStart(6, '0')}
-                        onChange={e => { const c = parseInt(e.target.value.slice(1), 16); this.setState({ bgColor: c }); Actions.setBackground(p, Color(c)); }}
+                        onChange={e => { const c = parseInt(e.target.value.slice(1), 16); Actions.setBackground(p, Color(c)); this.setState({ bgColor: c, labelColor: Actions.getLabelStyle().color }); }}
                         style={{ ...colorInputStyle, width: 28, height: 28, borderRadius: '50%' }} />
                     {Backgrounds.map(([label, color]) =>
-                        <button key={label} title={I18n.bgName(label)} onClick={() => Actions.setBackground(p, color)}
+                        <button key={label} title={I18n.bgName(label)} onClick={() => { Actions.setBackground(p, color); this.setState({ bgColor: color, labelColor: Actions.getLabelStyle().color }); }}
                             style={{ width: 24, height: 24, borderRadius: '50%', border: '1px solid #d5d9e0', cursor: 'pointer', background: Color.toStyle(color), flexShrink: 0 }} />)}
                 </div>
             </Section>
