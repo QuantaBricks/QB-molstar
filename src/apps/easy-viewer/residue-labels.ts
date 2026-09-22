@@ -48,8 +48,8 @@ function labelTypeParams() {
         backgroundOpacity: labelStyle.backgroundOpacity,
         borderWidth: 0,
         ignoreHydrogens: true,
-        // 字体图集分辨率最高档（64*(quality+1)px 字形），减少放大时的模糊
-        fontQuality: 4,
+        // 字体图集分辨率（64*(quality+1)px 字形）；4 太重建得慢，2 兼顾清晰与流畅
+        fontQuality: 2,
         fontWeight: 'normal' as const,
     };
 }

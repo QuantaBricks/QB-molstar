@@ -25,6 +25,8 @@ export interface PharmacophoreHandle {
     dispose(): void;
     /** 显示/隐藏（不重建） */
     setVisible(visible: boolean): void;
+    /** 显示/隐藏某一类特征（不重建） */
+    setTypeVisible(type: PharmacophoreFeatureType, visible: boolean): void;
 }
 
 async function createMesh(plugin: PluginContext, points: PharmacophorePoint[], color: number, scale: number, label: string) {
@@ -33,7 +35,7 @@ async function createMesh(plugin: PluginContext, points: PharmacophorePoint[], c
     const center = Vec3();
 
     // 点越多，细分越低，避免大量药效团点卡顿
-    const segments = points.length > 200 ? 12 : points.length > 50 ? 24 : 40;
+    const segments = points.length > 200 ? 12 : points.length > 50 ? 28 : 48;
     const circlesPerDimension = points.length > 200 ? 2 : 3;
 
     for (let i = 0; i < points.length; i++) {
@@ -74,22 +76,45 @@ export async function showPharmacophore(plugin: PluginContext, points: Pharmacop
         else byType.set(point.type, [point]);
     }
 
-    const reprs: PharmacophoreRepr[] = [];
+    const reprs = new Map<PharmacophoreFeatureType, { repr: PharmacophoreRepr, added: boolean }>();
     for (const [type, pts] of byType) {
         const repr = await createMesh(plugin, pts, PharmacophoreHexColors[type] ?? 0x999999, scale, type);
-        reprs.push(repr);
+        reprs.set(type, { repr, added: true });
     }
+
+    const typeVisible = new Map<PharmacophoreFeatureType, boolean>();
+    let masterVisible = true;
+
+    // 每类特征单独控制 add/remove，隐藏某类不影响其他类，也不重建几何
+    const apply = (type: PharmacophoreFeatureType) => {
+        const entry = reprs.get(type);
+        if (!entry) return;
+        const want = masterVisible && (typeVisible.get(type) ?? true);
+        try {
+            if (want && !entry.added) { plugin.canvas3d?.add(entry.repr); entry.added = true; }
+            else if (!want && entry.added) { plugin.canvas3d?.remove(entry.repr); entry.added = false; }
+        } catch {
+            try { entry.repr.setState({ visible: want }); } catch { /* ignore */ }
+        }
+    };
 
     return {
         setVisible(visible: boolean) {
-            for (const repr of reprs) repr.setState({ visible });
+            masterVisible = visible;
+            for (const type of reprs.keys()) apply(type);
+            plugin.canvas3d?.requestDraw();
+        },
+        setTypeVisible(type: PharmacophoreFeatureType, visible: boolean) {
+            typeVisible.set(type, visible);
+            apply(type);
+            plugin.canvas3d?.requestDraw();
         },
         dispose() {
-            for (const repr of reprs) {
-                plugin.canvas3d?.remove(repr);
-                repr.destroy();
+            for (const entry of reprs.values()) {
+                plugin.canvas3d?.remove(entry.repr);
+                entry.repr.destroy();
             }
-            reprs.length = 0;
+            reprs.clear();
         }
     };
 }

@@ -21,7 +21,7 @@ import { EasyDefaultPreset } from './easy-default-preset';
 import { EasyControls, EasyViewport, EasyViewportControls } from './easy-controls';
 import * as Actions from './easy-actions';
 import { applyDefaultColors } from './palettes';
-import { ChainPresentation, EasyViewerColorOptions, EasyViewerInputs, PharmacophorePoint, Pocket } from './types';
+import { ChainPresentation, EasyViewerColorOptions, EasyViewerInputs, PharmacophoreFeatureType, PharmacophorePoint, Pocket } from './types';
 
 export type { BaseStyle, EasyColorTheme, EasyStyle, HydrogenMode } from './easy-actions';
 export type { ChainPresentation, EasyRepresentationType, EasyViewerColorOptions, EasyViewerInputs, PharmacophorePoint, Pocket } from './types';
@@ -97,6 +97,9 @@ export class EasyViewer extends Viewer {
     clearPharmacophore() { Actions.clearPharmacophore(this.plugin); }
     /** 显示/隐藏药效团（不重建） */
     setPharmacophoreVisible(visible: boolean) { Actions.setPharmacophoreVisible(this.plugin, visible); }
+    isPharmacophoreVisible() { return Actions.isPharmacophoreVisible(this.plugin); }
+    /** 显示/隐藏某一类药效团特征（不重建，不丢失点数据） */
+    setPharmacophoreTypeVisible(type: PharmacophoreFeatureType, visible: boolean) { Actions.setPharmacophoreTypeVisible(this.plugin, type, visible); }
     setPockets(pockets: Pocket[]) { return Actions.setPockets(this.plugin, pockets); }
     clearPockets() { return Actions.clearPockets(this.plugin); }
     setPocketVisible(id: number | string, visible: boolean) { Actions.setPocketVisible(this.plugin, id, visible); }
@@ -128,6 +131,7 @@ export class EasyViewer extends Viewer {
         for (const s of list) {
             await this.loadStructureFromData(s.data as any, s.format as any, { dataLabel: s.label });
         }
+        await Actions.reapplyHydrogens(this.plugin);
         if (inputs.pharmacophore) await this.setPharmacophore(inputs.pharmacophore);
         if (inputs.pockets) await this.setPockets(inputs.pockets);
     }

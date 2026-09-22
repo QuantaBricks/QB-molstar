@@ -44,12 +44,29 @@
                 });
             }
 
+            function runPharmacophoreDemo(viewer) {
+                return viewer.loadPdb('1hsg').then(function () {
+                    return viewer.loadInputs({
+                        structures: [
+                            { data: ringPdb('L01', 4, 2, 2, 1.4), format: 'pdb', label: 'Ligand-1' },
+                        ],
+                        pharmacophore: [
+                            { center: [4, 2, 2], radius: 1.5, type: 'Aromatic' },
+                            { center: [6.4, 2, 2], radius: 1.2, type: 'Donor' },
+                            { center: [4, 4.4, 2], radius: 1.2, type: 'Acceptor' },
+                            { center: [4, 2, 4.4], radius: 1.2, type: 'Hydrophobe' },
+                        ],
+                    });
+                });
+            }
+
             molstar.EasyViewer.create('app').then(function (viewer) {
                 window.easyViewer = viewer;
                 var params = new URLSearchParams(window.location.search || '');
 
                 var demo = params.get('demo');
                 if (demo === 'multi-ligand') { runMultiLigandDemo(viewer); return; }
+                if (demo === 'pharmacophore') { runPharmacophoreDemo(viewer); return; }
 
                 var pdb = params.get('pdb');
                 if (pdb) viewer.loadPdb(pdb);

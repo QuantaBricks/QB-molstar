@@ -28,15 +28,16 @@ import { StructureElement, StructureProperties, Structure, Unit } from '../../mo
 import { Loci } from '../../mol-model/loci';
 import { OrderedSet } from '../../mol-data/int/ordered-set';
 import { ChainPalettes, RainbowPalettes } from './palettes';
-import { ChainPresentation, EasyColorTheme, EasyRepresentationType, EasyStyle, EasyViewerColorOptions, HydrogenMode, PharmacophorePoint, Pocket, RepresentationLayer } from './types';
+import { ChainPresentation, EasyColorTheme, EasyRepresentationType, EasyStyle, EasyViewerColorOptions, HydrogenMode, PharmacophoreFeatureType, PharmacophorePoint, Pocket, RepresentationLayer } from './types';
 import { showPharmacophore, PharmacophoreHandle } from './overlay-pharmacophore';
+import { setHighlightMode as refreshHighlightMode, getHighlightMode } from './focus-visuals';
 import { showPockets, PocketHandle } from './overlay-pocket';
 import { setLabelColor } from './residue-labels';
 import { Interactions } from '../../mol-model-props/computed/interactions/interactions';
 
 export type { EasyColorTheme, EasyRepresentationType, EasyStyle, HydrogenMode } from './types';
 export { setupResidueLabels, getLabelStyle, setLabelScale, setLabelColor, setLabelBackgroundColor, setLabelBackgroundOpacity } from './residue-labels';
-export { setupFocusVisuals, setInteractionsVisible, areInteractionsVisible, subscribeInteractionsVisible, setHighlightScale, setInteractionLineScale, getHighlightScale, getInteractionLineScale, getHighlightMode, setHighlightMode } from './focus-visuals';
+export { setupFocusVisuals, setInteractionsVisible, areInteractionsVisible, subscribeInteractionsVisible, setInteractionsIncludeWater, areWaterInteractionsVisible, setHighlightScale, setHighlightLineScale, setInteractionLineScale, getHighlightScale, getHighlightLineScale, getInteractionLineScale, getHighlightMode, setHighlightMode } from './focus-visuals';
 
 export const EasyColorThemes: [EasyColorTheme, string][] = [
     ['element-symbol', '元素'],
@@ -359,7 +360,7 @@ export async function setStyle(plugin: PluginContext, name: EasyStyle): Promise<
 
 /** 归一化：把简写的 representation/color 转成层列表 */
 export function getLayers(pres: ChainPresentation): RepresentationLayer[] {
-    if (pres.layers && pres.layers.length > 0) return pres.layers;
+    if (pres.layers) return pres.layers;
     const raw = pres.representation ?? 'cartoon';
     const types = Array.isArray(raw) ? raw : [raw];
     return types.map(type => ({ type, color: pres.color, colorOptions: pres.colorOptions, alpha: pres.alpha, visible: pres.visible }));
@@ -386,9 +387,9 @@ async function addChainPresentationFor(plugin: PluginContext, structure: ReturnT
             : (layer.alpha !== undefined ? { alpha: layer.alpha } : undefined);
 
         const isTube = layer.type === 'backbone';
-        const reprType: any = isTube ? 'cartoon' : layer.type;
+        const reprType: any = isTube ? 'putty' : layer.type;
         const reprTypeParams = isTube
-            ? { ...(layer.alpha !== undefined ? { alpha: layer.alpha } : {}), visuals: ['polymer-trace'] }
+            ? { ...(layer.alpha !== undefined ? { alpha: layer.alpha } : {}), visuals: ['polymer-tube'], sizeFactor: (layer.size ?? 0.08) * 2 }
             : typeParams;
 
         const repr = await plugin.builders.structure.representation.addRepresentation(comp, {
@@ -578,18 +579,71 @@ export function setWaterVisible(plugin: PluginContext, visible: boolean) {
     }
 }
 
+function waterComponents(plugin: PluginContext) {
+    const result: any[] = [];
+    for (const s of getStructures(plugin)) {
+        for (const c of s.components) {
+            if (c.cell.transform.tags?.some(t => t.includes('water'))) result.push(c);
+        }
+    }
+    return result;
+}
+
+/** 是否含水分子 */
+export function hasWater(plugin: PluginContext): boolean {
+    return waterComponents(plugin).length > 0;
+}
+
+/** 水分子当前是否可见 */
+export function isWaterVisible(plugin: PluginContext): boolean {
+    return waterComponents(plugin).some(c => !c.cell.state.isHidden);
+}
+
+const hydrogenPresence = new WeakMap<object, boolean>();
+
+/** 是否含氢原子（按模型缓存，避免每次遍历全部原子） */
+export function hasHydrogens(plugin: PluginContext): boolean {
+    for (const s of getStructures(plugin)) {
+        const model = s.cell.obj?.data?.model;
+        if (!model) continue;
+        let has = hydrogenPresence.get(model);
+        if (has === undefined) {
+            has = false;
+            const sym = model.atomicHierarchy.atoms.type_symbol;
+            for (let i = 0; i < sym.rowCount; i++) {
+                if (sym.value(i) === 'H') { has = true; break; }
+            }
+            hydrogenPresence.set(model, has);
+        }
+        if (has) return true;
+    }
+    return false;
+}
+
 const HydrogenOption: { [K in HydrogenMode]: 'all' | 'hide-all' | 'only-polar' } = {
     none: 'hide-all',
     polar: 'only-polar',
     all: 'all',
 };
 
+let hydrogenMode: HydrogenMode = 'polar';
+
+export function getHydrogenMode(): HydrogenMode {
+    return hydrogenMode;
+}
+
 /** 氢原子显示：写入组件管理器选项，作用于所有表示（含之后新加载的结构） */
 export async function setHydrogens(plugin: PluginContext, mode: HydrogenMode) {
+    hydrogenMode = mode;
     await plugin.managers.structure.component.setOptions({
         ...plugin.managers.structure.component.state.options,
         hydrogens: HydrogenOption[mode],
     });
+}
+
+/** 结构加载后重新套用当前氢设置（配体等新组件也跟随） */
+export async function reapplyHydrogens(plugin: PluginContext) {
+    await setHydrogens(plugin, hydrogenMode);
 }
 
 //
@@ -823,6 +877,27 @@ export async function setIllustrative(plugin: PluginContext, on: boolean, materi
         ...(materialStyle ? { materialStyle } : {}),
     });
 
+    // 焦点高亮表示不在组件管理器里，需要单独套用当前材质/光照，否则高反光下发惨白
+    await refreshHighlightMode(plugin, getHighlightMode());
+
+    // 扁平风下球棍/空间填充保持立体明暗，否则原子挤在一起分不清
+    if (on) {
+        const update = plugin.build();
+        let any = false;
+        for (const s of getStructures(plugin)) {
+            for (const c of s.components) {
+                for (const r of c.representations) {
+                    const name = (r.cell.transform.params as any)?.type?.name;
+                    if (name === 'ball-and-stick' || name === 'spacefill' || name === 'line') {
+                        update.to(r.cell).update(old => { (old as any).type.params.ignoreLight = false; });
+                        any = true;
+                    }
+                }
+            }
+        }
+        if (any) await update.commit();
+    }
+
     if (!plugin.canvas3d) return;
     // 明暗通道（遮蔽 SSAO）默认开，描边默认开
     plugin.canvas3d.setProps({
@@ -1003,11 +1078,12 @@ export function loadStateFile(plugin: PluginContext, file: File) {
 /** 打开本地文件：结构（pdb/mmcif/cif/sdf/mol2/...）与状态文件（.molj/.molx）自动识别。
  *  mode='new' 先清空当前场景，mode='add' 追加到当前场景。 */
 export async function loadStructureFile(plugin: PluginContext, file: File, mode: 'new' | 'add' = 'new') {
-    if (mode === 'new') await plugin.clear();
+    if (mode === 'new') { await plugin.clear(); clearPharmacophore(plugin); }
     const result = await loaders.loadFiles(plugin, [file]);
     const all = getAllStructures(plugin);
     if (all.length) structureFileNameMap(plugin).set(all[all.length - 1].cell.transform.ref, file.name);
     setActiveStructure(plugin, mode === 'add' ? all.length - 1 : 0);
+    await reapplyHydrogens(plugin);
     return result;
 }
 
@@ -1062,6 +1138,8 @@ interface OverlayState {
     pharmacophore?: PharmacophoreHandle;
     pharmacophorePoints: PharmacophorePoint[];
     pharmacophoreScale: number;
+    pharmacophoreVisible: boolean;
+    hiddenPharmacophoreTypes: Set<PharmacophoreFeatureType>;
     pockets?: PocketHandle;
     pocketData: Pocket[];
     hiddenPockets: Set<number | string>;
@@ -1072,7 +1150,7 @@ const overlayStates = new WeakMap<PluginContext, OverlayState>();
 function overlayState(plugin: PluginContext): OverlayState {
     let s = overlayStates.get(plugin);
     if (!s) {
-        s = { pharmacophorePoints: [], pharmacophoreScale: 1, pocketData: [], hiddenPockets: new Set() };
+        s = { pharmacophorePoints: [], pharmacophoreScale: 1, pharmacophoreVisible: true, hiddenPharmacophoreTypes: new Set(), pocketData: [], hiddenPockets: new Set() };
         overlayStates.set(plugin, s);
     }
     return s;
@@ -1083,7 +1161,22 @@ export async function setPharmacophore(plugin: PluginContext, points: Pharmacoph
     s.pharmacophore?.dispose();
     s.pharmacophorePoints = points;
     s.pharmacophoreScale = scale;
-    s.pharmacophore = await showPharmacophore(plugin, points, scale);
+    const handle = await showPharmacophore(plugin, points, scale);
+    // 重建后按当前状态恢复：整体可见性 + 被隐藏的特征类型
+    handle.setVisible(s.pharmacophoreVisible);
+    for (const type of s.hiddenPharmacophoreTypes) handle.setTypeVisible(type, false);
+    s.pharmacophore = handle;
+    plugin.canvas3d?.requestDraw();
+    plugin.events.canvas3d.settingsUpdated.next(void 0);
+    notifyPharmacophore();
+    setTimeout(() => plugin.canvas3d?.requestDraw(), 200);
+}
+
+const pharmacophoreListeners = new Set<() => void>();
+function notifyPharmacophore() { for (const fn of pharmacophoreListeners) fn(); }
+export function subscribePharmacophore(fn: () => void) {
+    pharmacophoreListeners.add(fn);
+    return { unsubscribe: () => { pharmacophoreListeners.delete(fn); } };
 }
 
 export function clearPharmacophore(plugin: PluginContext) {
@@ -1091,6 +1184,8 @@ export function clearPharmacophore(plugin: PluginContext) {
     s.pharmacophore?.dispose();
     s.pharmacophore = undefined;
     s.pharmacophorePoints = [];
+    s.hiddenPharmacophoreTypes.clear();
+    notifyPharmacophore();
 }
 
 export function getPharmacophorePoints(plugin: PluginContext) {
@@ -1099,7 +1194,27 @@ export function getPharmacophorePoints(plugin: PluginContext) {
 
 /** 显示/隐藏药效团（不重建） */
 export function setPharmacophoreVisible(plugin: PluginContext, visible: boolean) {
-    overlayState(plugin).pharmacophore?.setVisible(visible);
+    const s = overlayState(plugin);
+    s.pharmacophoreVisible = visible;
+    s.pharmacophore?.setVisible(visible);
+    notifyPharmacophore();
+}
+
+export function isPharmacophoreVisible(plugin: PluginContext) {
+    return overlayState(plugin).pharmacophoreVisible;
+}
+
+/** 显示/隐藏某一类药效团特征（不重建，不丢失点数据） */
+export function setPharmacophoreTypeVisible(plugin: PluginContext, type: PharmacophoreFeatureType, visible: boolean) {
+    const s = overlayState(plugin);
+    if (visible) s.hiddenPharmacophoreTypes.delete(type);
+    else s.hiddenPharmacophoreTypes.add(type);
+    s.pharmacophore?.setTypeVisible(type, visible);
+    notifyPharmacophore();
+}
+
+export function getHiddenPharmacophoreTypes(plugin: PluginContext) {
+    return overlayState(plugin).hiddenPharmacophoreTypes;
 }
 
 export async function setPockets(plugin: PluginContext, pockets: Pocket[]) {

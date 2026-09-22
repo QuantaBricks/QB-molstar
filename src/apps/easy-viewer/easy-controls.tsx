@@ -279,6 +279,17 @@ export function EasyViewportControls() {
     const openFileInput = React.useRef<HTMLInputElement>(null);
     const openFileMode = React.useRef<'new' | 'add'>('new');
     const [openDialog, setOpenDialog] = React.useState(false);
+    const [phOpen, setPhOpen] = React.useState(false);
+    const [phVisible, setPhVisible] = React.useState(() => Actions.isPharmacophoreVisible(plugin));
+    const [phScale, setPhScale] = React.useState(1);
+    const [phPoints, setPhPoints] = React.useState(() => Actions.getPharmacophorePoints(plugin));
+    const [phHidden, setPhHidden] = React.useState<Set<string>>(() => new Set(Actions.getHiddenPharmacophoreTypes(plugin)));
+    const phTypes = Array.from(new Set(phPoints.map(pt => pt.type)));
+    const [hasWater, setHasWater] = React.useState(() => Actions.hasWater(plugin));
+    const [waterVisible, setWaterVisible] = React.useState(() => Actions.isWaterVisible(plugin));
+    const [hasH, setHasH] = React.useState(() => Actions.hasHydrogens(plugin));
+    const [hMode, setHMode] = React.useState<Actions.HydrogenMode>(() => Actions.getHydrogenMode());
+    const [hMenuOpen, setHMenuOpen] = React.useState(false);
     const targetedChain = React.useSyncExternalStore(Actions.subscribeTargetedChain, Actions.getTargetedChain);
 
     const openFile = (mode: 'new' | 'add') => {
@@ -300,30 +311,95 @@ export function EasyViewportControls() {
             setPanelVisible(Actions.isPanelVisible(plugin));
             setSequenceVisible(Actions.isSequenceVisible(plugin));
             setSelectionMode(plugin.selectionMode);
+            setHasWater(Actions.hasWater(plugin));
+            setWaterVisible(Actions.isWaterVisible(plugin));
+            setHasH(Actions.hasHydrogens(plugin));
         };
         update();
         const subs = [
             plugin.layout.events.updated.subscribe(update),
             plugin.behaviors.interaction.selectionMode.subscribe(update),
+            plugin.events.canvas3d.settingsUpdated.subscribe(update),
+            Actions.subscribeInteractionsVisible(update),
+            plugin.state.data.events.cell.created.subscribe(update),
+            plugin.state.data.events.cell.removed.subscribe(update),
         ];
         return () => { for (const s of subs) s.unsubscribe(); };
+    }, [plugin]);
+
+    // 药效团数据/显隐状态变化时刷新按钮与调节面板
+    React.useEffect(() => {
+        const refresh = () => {
+            setPhPoints([...Actions.getPharmacophorePoints(plugin)]);
+            setPhHidden(new Set(Actions.getHiddenPharmacophoreTypes(plugin)));
+            setPhVisible(Actions.isPharmacophoreVisible(plugin));
+        };
+        refresh();
+        const sub = Actions.subscribePharmacophore(refresh);
+        return () => sub.unsubscribe();
     }, [plugin]);
 
     const button = (svg: React.ReactNode, title: string, onClick: () => void, active = false) =>
         <button className={'easy-vp-btn' + (active ? ' easy-vp-btn-active' : '')} title={title} onClick={onClick}>{svg}</button>;
 
     return <>
-        {!panelVisible && <div className='easy-viewport-controls'>
-            {button(<FileSvg />, I18n.t('openFile'), onOpenClick)}
-            {button(<CameraOutlinedSvg />, I18n.t('exportImage'), () => setPrintExpanded(v => !v), printExpanded)}
-            {button(<TuneSvg />, I18n.t('setting'), () => Actions.setPanelVisible(plugin, true))}
-            {button(<SeqSvg />, I18n.t('sequence'), () => Actions.setSequenceVisible(plugin, !sequenceVisible), sequenceVisible)}
-            {button(<SelectionModeSvg />, I18n.t('selection'), () => { plugin.selectionMode = !plugin.selectionMode; }, selectionMode)}
-            {button(<AutorenewSvg />, I18n.t('reset'), () => Actions.resetCamera(plugin))}
-            {button(<InfoSvg />, I18n.t('about'), () => setInfoOpen(v => !v), infoOpen)}
-            {classic && <button className='easy-vp-btn easy-vp-btn-text'
-                title={locale === 'zh' ? '切换回简易界面' : locale === 'ja' ? 'シンプルUIに戻る' : 'Switch back to simple UI'}
-                onClick={() => Actions.toggleClassicMode(plugin)}>{I18n.t('simple')}</button>}
+        {!panelVisible && <div className='easy-viewport-controls' style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
+                {button(<FileSvg />, I18n.t('openFile'), onOpenClick)}
+                {button(<CameraOutlinedSvg />, I18n.t('exportImage'), () => setPrintExpanded(v => !v), printExpanded)}
+                {button(<TuneSvg />, I18n.t('setting'), () => Actions.setPanelVisible(plugin, true))}
+                {button(<SeqSvg />, I18n.t('sequence'), () => Actions.setSequenceVisible(plugin, !sequenceVisible), sequenceVisible)}
+                {button(<SelectionModeSvg />, I18n.t('selection'), () => { plugin.selectionMode = !plugin.selectionMode; }, selectionMode)}
+                {button(<AutorenewSvg />, I18n.t('reset'), () => Actions.resetCamera(plugin))}
+                {button(<InfoSvg />, I18n.t('about'), () => setInfoOpen(v => !v), infoOpen)}
+                {classic && <button className='easy-vp-btn easy-vp-btn-text'
+                    title={locale === 'zh' ? '切换回简易界面' : locale === 'ja' ? 'シンプルUIに戻る' : 'Switch back to simple UI'}
+                    onClick={() => Actions.toggleClassicMode(plugin)}>{I18n.t('simple')}</button>}
+            </div>
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'stretch' }}>
+                {phPoints.length > 0 && <button
+                    className={'easy-vp-btn easy-vp-btn-text' + (phOpen ? ' easy-vp-btn-active' : '')}
+                    title={I18n.t('pharmacophore')}
+                    onClick={() => setPhOpen(v => !v)}>{I18n.t('pharmacophore')}</button>}
+                {hasWater && <button
+                    className={'easy-vp-btn easy-vp-btn-text' + (waterVisible ? ' easy-vp-btn-active' : '')}
+                    title={I18n.t('water')}
+                    onClick={() => { const v = !waterVisible; setWaterVisible(v); Actions.setWaterVisible(plugin, v); }}>{I18n.t('water')}</button>}
+                {hasH && <div style={{ position: 'relative' }}>
+                    <button className={'easy-vp-btn easy-vp-btn-text' + (hMode !== 'none' ? ' easy-vp-btn-active' : '')}
+                        title={I18n.t('polarHydrogen')}
+                        onClick={() => setHMenuOpen(v => !v)}>H</button>
+                    {hMenuOpen && <div className='easy-lang-menu' style={{ top: '100%', bottom: 'auto', marginTop: 4, marginBottom: 0 }}>
+                        {([['polar', I18n.t('polarHydrogen')], ['all', I18n.t('allHydrogen')], ['none', I18n.t('noHydrogen')]] as [Actions.HydrogenMode, string][]).map(([m, label]) =>
+                            <div key={m} className={'easy-lang-item' + (hMode === m ? ' easy-lang-item-active' : '')}
+                                onClick={() => { setHMode(m); setHMenuOpen(false); Actions.setHydrogens(plugin, m); }}>{label}</div>)}
+                    </div>}
+                </div>}
+            </div>
+        </div>}
+        {!panelVisible && phOpen && phPoints.length > 0 && <div style={{ position: 'absolute', top: 8, left: 180, zIndex: 30, background: '#fff', border: '1px solid #e6e8ec', borderRadius: 10, padding: 10, display: 'flex', flexDirection: 'column', gap: 6, minWidth: 200, boxShadow: '0 4px 18px rgba(0,0,0,0.14)' }}>
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 2 }}>
+                <b style={{ fontSize: 14, color: '#1f2937' }}>{I18n.t('pharmacophore')}</b>
+                <button className='easy-print-close' style={{ fontSize: 30, lineHeight: 1 }} onClick={() => setPhOpen(false)} title={I18n.t('close')}>×</button>
+            </div>
+            <label style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer' }}>
+                <input type="checkbox" checked={phVisible} onChange={e => Actions.setPharmacophoreVisible(plugin, e.target.checked)} />
+                <small>{I18n.t('show')}</small>
+            </label>
+            {phTypes.map(t => {
+                const off = phHidden.has(t);
+                return <label key={t} title={t} style={{ display: 'flex', alignItems: 'center', gap: 6, cursor: 'pointer', opacity: phVisible && !off ? 1 : 0.4 }}>
+                    <input type="checkbox" checked={!off} onChange={e => Actions.setPharmacophoreTypeVisible(plugin, t, e.target.checked)} />
+                    <span style={{ width: 12, height: 12, borderRadius: 3, background: '#' + (PharmacophoreHexColors[t] ?? 0x999999).toString(16).padStart(6, '0') }} />
+                    <small>{t}</small>
+                </label>;
+            })}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
+                <small style={{ minWidth: 40 }}>{I18n.t('radius')}</small>
+                <input type="range" min={0.3} max={2} step={0.1} value={phScale} style={{ flex: 1 }}
+                    onChange={e => { const s = parseFloat(e.target.value); setPhScale(s); Actions.setPharmacophore(plugin, phPoints, s); }} />
+                <span style={{ minWidth: 28, textAlign: 'right', fontSize: 12 }}>{phScale.toFixed(1)}</span>
+            </div>
         </div>}
         <input ref={openFileInput} type='file' accept={StructureFileAccept} style={{ display: 'none' }} onChange={onOpenFile} />
         {openDialog && <OpenFileDialog onPick={mode => { setOpenDialog(false); openFile(mode); }} onClose={() => setOpenDialog(false)} />}
@@ -384,10 +460,6 @@ export class EasyControls extends PluginUIComponent<{}, {
     chainPalette: string,
     rainbowPalette: string,
     uniformColor: number,
-    waterVisible: boolean,
-    hMode: Actions.HydrogenMode,
-    pharmacophoreVisible: boolean,
-    pharmacophoreScale: number,
     chains: string[],
     chainTypes: { [chain: string]: string },
     chainPres: { [chain: string]: ChainPresentation },
@@ -410,10 +482,6 @@ export class EasyControls extends PluginUIComponent<{}, {
         chainPalette: 'default',
         rainbowPalette: 'blue',
         uniformColor: 0x94a3b8,
-        waterVisible: true,
-        hMode: 'polar' as Actions.HydrogenMode,
-        pharmacophoreVisible: true,
-        pharmacophoreScale: 1,
         chains: [] as string[],
         chainTypes: {} as { [chain: string]: string },
         chainPres: {} as { [chain: string]: ChainPresentation },
@@ -425,7 +493,7 @@ export class EasyControls extends PluginUIComponent<{}, {
         labelBgColor: 0xffffff,
         labelBgOpacity: 0,
         labelScale: 0.65,
-        renderQuality: 'high' as Actions.RenderQuality,
+        renderQuality: 'normal' as Actions.RenderQuality,
         langOpen: false,
         collapsed: {} as { [key: string]: boolean },
         bgColor: 0xffffff,
@@ -458,6 +526,7 @@ export class EasyControls extends PluginUIComponent<{}, {
         this.subscribe(this.plugin.state.data.events.changed, this.scheduleUpdate);
         this.subscribe(this.plugin.state.data.events.cell.stateUpdated, this.scheduleUpdate);
         this.subscribe(this.plugin.events.canvas3d.settingsUpdated, this.scheduleUpdate);
+        this.subscribe({ subscribe: (fn: any) => Actions.subscribePharmacophore(fn) } as any, this.scheduleUpdate);
         this.targetedSub = Actions.subscribeTargetedChain(() => {
             const target = Actions.getTargetedChain() ?? 'all';
             if (this.state.chainTarget !== target) this.setState({ chainTarget: target });
@@ -532,7 +601,7 @@ export class EasyControls extends PluginUIComponent<{}, {
             .easy-file-row:hover { background: #f3f4f6; }
             .easy-viewport-controls {
                 position: absolute; top: 8px; left: 8px; z-index: 30;
-                display: flex; flex-direction: column; gap: 6px;
+                display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
             }
             .easy-vp-btn {
                 display: flex; align-items: center; justify-content: center;
@@ -782,6 +851,16 @@ export class EasyControls extends PluginUIComponent<{}, {
         }
     }
 
+    private setLayerSize(type: EasyRepresentationType, size: number) {
+        const chainPres = { ...this.state.chainPres };
+        for (const c of this.targetChains()) {
+            const layers = Actions.getLayers(chainPres[c] ?? { chain: c, layers: [] }).map(l => l.type === type ? { ...l, size } : l);
+            chainPres[c] = { ...chainPres[c], chain: c, layers };
+        }
+        this.setState({ chainPres, perChainActive: true });
+        this.run(() => Actions.setChainPresentations(this.plugin, Object.values(chainPres)));
+    }
+
     private setLayerAlphaDebounced = debounce((type: EasyRepresentationType, alpha: number) => {
         this.run(async () => {
             for (const c of this.targetChains()) await Actions.updateLayerAlpha(this.plugin, c, type, alpha);
@@ -811,11 +890,6 @@ export class EasyControls extends PluginUIComponent<{}, {
             this.setState({ busy: false });
         }
     }
-
-    private refreshPharmacophore = debounce((scale: number) => {
-        const points = Actions.getPharmacophorePoints(this.plugin);
-        if (points.length > 0) Actions.setPharmacophore(this.plugin, points, scale);
-    }, 150);
 
     private setLayerUniform(type: EasyRepresentationType, color: number) {
         this.setState({ uniformColor: color });
@@ -859,8 +933,6 @@ export class EasyControls extends PluginUIComponent<{}, {
         const disabled = this.state.busy || !hasStructure;
         const pockets = Actions.getPocketData(p);
         const hidden = Actions.getHiddenPockets(p);
-        const phPoints = Actions.getPharmacophorePoints(p);
-        const phTypes = Array.from(new Set(phPoints.map(pt => pt.type)));
 
         return <div className='msp-scrollable-container easy-panel' style={{ display: 'flex', flexDirection: 'column', overflow: 'hidden', fontFamily }}>
             <div style={{ flexShrink: 0, display: 'flex', justifyContent: 'flex-end', padding: '2px 4px 0' }}>
@@ -962,6 +1034,13 @@ export class EasyControls extends PluginUIComponent<{}, {
                                             onChange={e => this.setLayerAlpha(layer.type, parseFloat(e.target.value))} />
                                         <span style={numStyle}>{(layer.alpha ?? 1).toFixed(2)}</span>
                                     </div>
+                                    {layer.type === 'backbone' && <div style={{ ...rowStyle, marginTop: 4, flexWrap: 'nowrap' }}>
+                                        <small style={{ minWidth: 32 }}>Size</small>
+                                        <input type="range" min={1} max={10} step={0.1} value={(layer.size ?? 0.08) * 100}
+                                            style={{ flex: 1 }}
+                                            onChange={e => this.setLayerSize(layer.type, parseFloat(e.target.value) / 100)} />
+                                        <span style={numStyle}>{((layer.size ?? 0.08) * 100).toFixed(1)}</span>
+                                    </div>}
                                 </>}
                             </div>;
                         });
@@ -995,30 +1074,32 @@ export class EasyControls extends PluginUIComponent<{}, {
                 <Segmented value={Actions.getHighlightMode()} disabled={disabled}
                     options={[['ball-and-stick', 'Ball & Stick'], ['line', 'Line']]}
                     onChange={v => this.run(async () => { await Actions.setHighlightMode(p, v as any); this.forceUpdate(); })} />
+                {(() => {
+                    const isLine = Actions.getHighlightMode() === 'line';
+                    const value = isLine ? Actions.getHighlightLineScale() : Actions.getHighlightScale();
+                    const min = isLine ? 0.5 : 0.1;
+                    const max = isLine ? 8 : 2;
+                    const step = isLine ? 0.1 : 0.05;
+                    return <div style={{ ...rowStyle, flexWrap: 'nowrap', marginTop: 2 }}>
+                        <small style={{ minWidth: 32 }}>Size</small>
+                        <input type="range" min={min} max={max} step={step} value={value}
+                            style={{ flex: 1 }}
+                            onChange={e => {
+                                const s = parseFloat(e.target.value);
+                                this.run(async () => {
+                                    await (isLine ? Actions.setHighlightLineScale(p, s) : Actions.setHighlightScale(p, s));
+                                    this.forceUpdate();
+                                });
+                            }} />
+                        <span style={numStyle}>{value.toFixed(2)}</span>
+                    </div>;
+                })()}
+                <label style={{ ...rowStyle, gap: 6, marginTop: 2, cursor: 'pointer' }}>
+                    <input type="checkbox" checked={Actions.areWaterInteractionsVisible()}
+                        onChange={e => { Actions.setInteractionsIncludeWater(p, e.target.checked); this.forceUpdate(); }} />
+                    <small>{I18n.t('water')}</small>
+                </label>
             </Section>}
-            <Section title={I18n.t('display')}>
-                <div style={gridStyle}>
-                    <Button disabled={disabled} style={this.state.waterVisible ? selectedButtonStyle : undefined}
-                        onClick={() => { const v = !this.state.waterVisible; this.setState({ waterVisible: v }); Actions.setWaterVisible(p, v); }}>
-                        {I18n.t('water')}{this.state.waterVisible ? ' ✓' : ''}
-                    </Button>
-                    <select style={{ ...selectStyle, marginTop: 0 }} value={this.state.hMode}
-                        onChange={e => { const mode = e.target.value as Actions.HydrogenMode; this.setState({ hMode: mode }); Actions.setHydrogens(p, mode); }}>
-                        <option value="none">{I18n.t('noHydrogen')}</option>
-                        <option value="polar">{I18n.t('polarHydrogen')}</option>
-                        <option value="all">{I18n.t('allHydrogen')}</option>
-                    </select>
-                </div>
-                <div style={grid3Style}>
-                    <Button disabled={disabled} style={Actions.isOutlineOn(p) ? selectedButtonStyle : undefined}
-                        onClick={() => Actions.setOutline(p, !Actions.isOutlineOn(p))}>{I18n.t('outline')}</Button>
-                    <Button disabled={disabled} style={Actions.isShadowOn(p) ? selectedButtonStyle : undefined}
-                        onClick={() => Actions.setShadow(p, !Actions.isShadowOn(p))}>{I18n.t('shadow')}</Button>
-                    <Button disabled={disabled} style={Actions.isOcclusionOn(p) ? selectedButtonStyle : undefined}
-                        onClick={() => Actions.setOcclusion(p, !Actions.isOcclusionOn(p))}>{I18n.t('occlusion')}</Button>
-                </div>
-            </Section>
-
             <Section title={I18n.t('label')}>
                 <div style={{ ...rowStyle, marginTop: 0 }}>
                     <small style={{ minWidth: 48 }}>{I18n.t('labelSize')}</small>
@@ -1046,34 +1127,6 @@ export class EasyControls extends PluginUIComponent<{}, {
                 </div>
             </Section>
 
-            {phPoints.length > 0 && <Section title={`${I18n.t('pharmacophore')} (${phPoints.length})`}>
-                <div style={rowStyle}>
-                    <Button disabled={disabled} style={this.state.pharmacophoreVisible ? selectedButtonStyle : undefined}
-                        onClick={() => {
-                            const v = !this.state.pharmacophoreVisible;
-                            this.setState({ pharmacophoreVisible: v });
-                            if (v) Actions.setPharmacophore(p, phPoints, this.state.pharmacophoreScale);
-                            else Actions.clearPharmacophore(p);
-                        }}>{I18n.t('show')}{this.state.pharmacophoreVisible ? ' ✓' : ''}</Button>
-                    {phTypes.map(t =>
-                        <span key={t} style={{ ...rowStyle, gap: 3 }}>
-                            <span style={{ width: 12, height: 12, borderRadius: 3, background: '#' + (PharmacophoreHexColors[t] ?? 0x999999).toString(16).padStart(6, '0') }} />
-                            <small>{t}</small>
-                        </span>)}
-                </div>
-                <div style={{ ...rowStyle, marginTop: 2 }}>
-                    <small>{I18n.t('radius')}</small>
-                    <input type="range" min={0.3} max={2} step={0.1} value={this.state.pharmacophoreScale}
-                        style={{ flex: 1 }}
-                        onChange={e => {
-                            const scale = parseFloat(e.target.value);
-                            this.setState({ pharmacophoreScale: scale });
-                            if (this.state.pharmacophoreVisible) this.refreshPharmacophore(scale);
-                        }} />
-                    <span style={numStyle}>{this.state.pharmacophoreScale.toFixed(1)}</span>
-                </div>
-            </Section>}
-
             {pockets.length > 0 && <Section title={`${I18n.t('pocket')} (${pockets.length})`}>
                 {pockets.map((pocket, i) => {
                     const shown = !hidden.has(pocket.pocket_id);
@@ -1096,6 +1149,14 @@ export class EasyControls extends PluginUIComponent<{}, {
                 <Segmented value={this.state.renderQuality}
                     options={[['high', I18n.t('qualityHigh')], ['normal', I18n.t('qualityNormal')], ['preview', I18n.t('qualityPreview')]]}
                     onChange={v => { this.setState({ renderQuality: v as Actions.RenderQuality }); this.run(() => Actions.setRenderQuality(p, v as Actions.RenderQuality)); }} />
+                <div style={grid3Style}>
+                    <Button disabled={disabled} style={Actions.isOutlineOn(p) ? selectedButtonStyle : undefined}
+                        onClick={() => Actions.setOutline(p, !Actions.isOutlineOn(p))}>{I18n.t('outline')}</Button>
+                    <Button disabled={disabled} style={Actions.isShadowOn(p) ? selectedButtonStyle : undefined}
+                        onClick={() => Actions.setShadow(p, !Actions.isShadowOn(p))}>{I18n.t('shadow')}</Button>
+                    <Button disabled={disabled} style={Actions.isOcclusionOn(p) ? selectedButtonStyle : undefined}
+                        onClick={() => Actions.setOcclusion(p, !Actions.isOcclusionOn(p))}>{I18n.t('occlusion')}</Button>
+                </div>
                 <div style={{ ...rowStyle, flexWrap: 'nowrap' }}>
                     <small style={{ minWidth: 48 }}>{I18n.t('lighting')}</small>
                     <input type="range" min={0} max={3} step={0.05} value={this.state.lightIntensity}

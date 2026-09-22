@@ -14,15 +14,61 @@ import { Bond, StructureElement, StructureProperties } from '../../mol-model/str
 import { MolScriptBuilder as MS } from '../../mol-script/language/builder';
 import { OrderedSet } from '../../mol-data/int/ordered-set';
 import { InteractionsProvider } from '../../mol-model-props/computed/interactions';
+import { computeInteractions } from '../../mol-model-props/computed/interactions/interactions';
 import { InteractionsRepresentationProvider } from '../../mol-model-props/computed/representations/interactions';
 import { StructureFocusRepresentation } from '../../mol-plugin/behavior/dynamic/selection/structure-focus-representation';
 import { addLabelRepresentation } from './residue-labels';
+import { ParamDefinition as PD } from '../../mol-util/param-definition';
+import { ValueBox } from '../../mol-util';
+import { Task } from '../../mol-task';
 
 const FocusInteractionsKey = 'easy-focus-interactions';
 const FocusHighlightKey = 'easy-focus-highlight';
 const FocusPartnersKey = 'easy-focus-partners';
 /** 高亮周边半径（Å）：配体-残基最小原子距离 ≤ 此值 */
 const HighlightRadius = 3;
+
+/** 水分子原子的表达式 */
+function waterExpression() {
+    return MS.struct.generator.atomGroups({
+        'entity-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.entityType(), 'water'])
+    });
+}
+
+/**
+ * 在根结构上重算相互作用并覆盖属性值：
+ * includeWater=false 时用 unitPairTest 排除所有水所在 unit 的相互作用对。
+ * 因为 Structure.create 会把 parent 塌到根结构，无法靠父结构排除水，只能重算。
+ */
+async function applyWaterFilterToInteractions(plugin: PluginContext, structure: any, includeWater: boolean) {
+    const root = structure.root;
+    const key = InteractionsProvider.descriptor.name;
+    if (includeWater) {
+        if (root.currentPropertyData && root.currentPropertyData[key]) delete root.currentPropertyData[key];
+        return;
+    }
+    const waterUnitIds = new Set<number>();
+    const l = StructureElement.Location.create(root);
+    for (const u of root.units) {
+        l.unit = u; l.element = u.elements[0];
+        if (StructureProperties.entity.type(l) === 'water') waterUnitIds.add(u.id);
+    }
+    if (waterUnitIds.size === 0) return;
+    try {
+        await plugin.runTask(Task.create('Water interactions filter', async taskCtx => {
+            const ctx = { runtime: taskCtx, assetManager: plugin.managers.asset, errorContext: plugin.errorContext };
+            const value = await computeInteractions(ctx as any, root, {}, {
+                unitPairTest: (a: any, b: any) => !waterUnitIds.has(a.id) && !waterUnitIds.has(b.id)
+            });
+            root.currentPropertyData[key] = {
+                props: PD.getDefaultValues(InteractionsProvider.defaultParams),
+                data: ValueBox.create(value)
+            };
+        }));
+    } catch (e) {
+        console.warn('Water interactions filter failed:', e);
+    }
+}
 
 function targetKey(loc: StructureElement.Location) {
     return [loc.unit.model.id, loc.unit.id, StructureProperties.residue.key(loc)].join(':');
@@ -139,6 +185,8 @@ function installFocusVisuals(plugin: PluginContext) {
     let highlightRef: string | undefined;
     let partnerRef: string | undefined;
     let activeKey: string | null = null;
+    let interactionsSeq = 0;
+    let lastEntry: any;
     let disposed = false;
     let queue = Promise.resolve();
 
@@ -153,6 +201,14 @@ function installFocusVisuals(plugin: PluginContext) {
         await deleteRef(plugin, a);
         await deleteRef(plugin, b);
         await deleteRef(plugin, c);
+    };
+
+    const schedule = (entry: any) => {
+        // 让点选的即时反馈先渲染，再做较重的周边高亮/相互作用计算，避免点选时卡顿
+        queue = queue
+            .then(() => new Promise<void>(resolve => requestAnimationFrame(() => resolve())))
+            .then(() => update(entry))
+            .catch(err => console.warn('Focus visuals:', err));
     };
 
     const update = async (entry: any) => {
@@ -181,9 +237,11 @@ function installFocusVisuals(plugin: PluginContext) {
 
         let partnerExpression: any;
         if (isLigand) {
-            // 先建相互作用表示（顺带把相互作用数据挂到父结构上）
+            // 隐藏与水的相互作用：Structure.create 会把 parent 塌到根结构，
+            // 无法靠父结构排除水；改为在根结构上重算相互作用并排除水的 unit 对，覆盖属性值。
+            await applyWaterFilterToInteractions(plugin, parentStructure, interactionsIncludeWater);
             const ligandComponent: any = await plugin.builders.structure.tryCreateComponentFromExpression(
-                parent, focusExpression, FocusInteractionsKey, { label: 'Focus interactions' }
+                parent, focusExpression, FocusInteractionsKey + '-' + (interactionsSeq++), { label: 'Focus interactions' }
             );
             if (!ligandComponent || disposed) return;
             const ligandRef: string = ligandComponent.ref;
@@ -200,10 +258,13 @@ function installFocusVisuals(plugin: PluginContext) {
 
         // 高亮：周边（配体-残基最小原子距离 ≤ radius）∪ 相互作用对方残基（各自独立组件，避免 union 出错）
         const radius = Math.max(focusRadius(plugin), HighlightRadius);
-        const nearby = MS.struct.modifier.exceptBy({
+        let nearby = MS.struct.modifier.exceptBy({
             0: MS.struct.modifier.includeSurroundings({ 0: focusExpression, radius, 'as-whole-residues': true }),
             by: focusExpression,
         });
+        if (!interactionsIncludeWater) {
+            nearby = MS.struct.modifier.exceptBy({ 0: nearby, by: waterExpression() });
+        }
 
         const highlightComponent: any = await plugin.builders.structure.tryCreateComponentFromExpression(
             parent, nearby, FocusHighlightKey, { label: `Focus highlight (${radius} A)` }
@@ -216,7 +277,7 @@ function installFocusVisuals(plugin: PluginContext) {
                 colorParams: { carbonColor: { name: 'element-symbol', params: {} } },
                 size: 'physical',
                 sizeParams: { scale: highlightScale },
-                typeParams: highlightTypeParams(),
+                typeParams: highlightTypeParams(plugin),
             });
             if (hr?.ref) highlightReprRefs.push(hr.ref);
             await addLabelRepresentation(plugin, highlightComponent);
@@ -234,7 +295,7 @@ function installFocusVisuals(plugin: PluginContext) {
                     colorParams: { carbonColor: { name: 'element-symbol', params: {} } },
                     size: 'physical',
                     sizeParams: { scale: highlightScale },
-                    typeParams: highlightTypeParams(),
+                    typeParams: highlightTypeParams(plugin),
                 });
                 if (pr?.ref) highlightReprRefs.push(pr.ref);
                 await addLabelRepresentation(plugin, partnerComponent);
@@ -243,10 +304,17 @@ function installFocusVisuals(plugin: PluginContext) {
     };
 
     const sub = plugin.managers.structure.focus.behaviors.current.subscribe((entry: any) => {
-        queue = queue.then(() => update(entry)).catch(err => console.warn('Focus visuals:', err));
+        lastEntry = entry;
+        schedule(entry);
     });
 
-    return { dispose() { disposed = true; sub.unsubscribe(); void clear(); } };
+    forceRefresh = () => {
+        if (disposed || !lastEntry) return;
+        activeKey = null;
+        schedule(lastEntry);
+    };
+
+    return { dispose() { disposed = true; forceRefresh = undefined; sub.unsubscribe(); void clear(); } };
 }
 
 interface FocusVisualsState {
@@ -256,8 +324,19 @@ interface FocusVisualsState {
 const states = new WeakMap<PluginContext, FocusVisualsState>();
 
 let interactionsVisible = true;
+let interactionsIncludeWater = true;
 let currentInteractionsRef: string | undefined;
+let forceRefresh: (() => void) | undefined;
 const interactionsVisListeners = new Set<() => void>();
+
+/** 是否显示与水分子的相互作用 */
+export function areWaterInteractionsVisible() { return interactionsIncludeWater; }
+
+export function setInteractionsIncludeWater(plugin: PluginContext, include: boolean) {
+    interactionsIncludeWater = include;
+    forceRefresh?.();
+    for (const fn of interactionsVisListeners) fn();
+}
 
 /** 显示/隐藏配体-残基相互作用 */
 export function setInteractionsVisible(plugin: PluginContext, visible: boolean) {
@@ -274,23 +353,32 @@ export function areInteractionsVisible() {
 
 export function subscribeInteractionsVisible(fn: () => void) {
     interactionsVisListeners.add(fn);
-    return () => { interactionsVisListeners.delete(fn); };
+    return { unsubscribe: () => { interactionsVisListeners.delete(fn); } };
 }
 
 let highlightScale = 0.5;
+let highlightLineScale = 2;
 let interactionLineScale = 0.2;
 let highlightMode: 'ball-and-stick' | 'line' = 'ball-and-stick';
 let interactionsReprRef: string | undefined;
 let highlightReprRefs: string[] = [];
 
 export function getHighlightScale() { return highlightScale; }
+export function getHighlightLineScale() { return highlightLineScale; }
 export function getInteractionLineScale() { return interactionLineScale; }
 export function getHighlightMode() { return highlightMode; }
 
-function highlightTypeParams() {
+function highlightTypeParams(plugin: PluginContext) {
+    const opts = plugin.managers.structure.component.state.options;
+    const h = opts.hydrogens;
+    const hydrogenParams = {
+        ignoreHydrogens: h !== 'all',
+        ignoreHydrogensVariant: (h === 'only-polar' ? 'non-polar' : 'all') as 'all' | 'non-polar',
+    };
+    const styleParams = { ignoreLight: opts.ignoreLight, material: opts.materialStyle };
     return highlightMode === 'line'
-        ? {}
-        : { sizeFactor: 0.16, excludeTypes: ['hydrogen-bond', 'metal-coordination'] };
+        ? { sizeFactor: highlightLineScale, ...hydrogenParams, ...styleParams }
+        : { sizeFactor: 0.16, excludeTypes: ['hydrogen-bond', 'metal-coordination'], ...hydrogenParams, ...styleParams };
 }
 
 /** 高亮残基的表现形式：球棍 / line */
@@ -300,7 +388,7 @@ export async function setHighlightMode(plugin: PluginContext, mode: 'ball-and-st
     const b = plugin.build();
     for (const ref of highlightReprRefs) {
         b.to(ref).update((old: any) => {
-            old.type = { name: mode, params: mode === 'line' ? {} : { sizeFactor: 0.16, excludeTypes: ['hydrogen-bond', 'metal-coordination'] } };
+            old.type = { name: mode, params: highlightTypeParams(plugin) };
         });
     }
     await b.commit({ canUndo: 'Highlight Mode' });
@@ -316,6 +404,18 @@ export async function setHighlightScale(plugin: PluginContext, scale: number) {
         b.to(ref).update((old: any) => { old.sizeTheme = { ...old.sizeTheme, params: { ...(old.sizeTheme?.params || {}), scale } }; });
     }
     await b.commit({ canUndo: 'Highlight Scale' });
+    for (const fn of interactionsVisListeners) fn();
+}
+
+/** 高亮残基 line 的粗细 */
+export async function setHighlightLineScale(plugin: PluginContext, scale: number) {
+    highlightLineScale = scale;
+    if (highlightReprRefs.length === 0) return;
+    const b = plugin.build();
+    for (const ref of highlightReprRefs) {
+        b.to(ref).update((old: any) => { old.type = { ...old.type, params: { ...old.type.params, sizeFactor: scale } }; });
+    }
+    await b.commit({ canUndo: 'Highlight Line Scale' });
     for (const fn of interactionsVisListeners) fn();
 }
 
