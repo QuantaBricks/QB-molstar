@@ -215,7 +215,7 @@ export async function addLigandLayer(plugin: PluginContext, type: EasyRepresenta
                 type: type as any,
                 color: 'element-symbol',
                 colorParams: LigandElementParams,
-                typeParams: { ...(isSurface ? { quality: currentSurfaceQuality() } : {}), ...currentStyleParams(plugin) },
+                typeParams: { ...(isSurface ? { quality: currentSurfaceQuality() } : {}), ...currentStyleParams(plugin, type) },
             }, { tag: `qb-ligand-repr-${type}` });
         }
     }, { canUndo: 'Add Ligand Layer' });
@@ -370,10 +370,14 @@ export function getLayers(pres: ChainPresentation): RepresentationLayer[] {
     return types.map(type => ({ type, color: pres.color, colorOptions: pres.colorOptions, alpha: pres.alpha, visible: pres.visible }));
 }
 
+/** 球棍/空间填充/line 即使全局平光也保持立体明暗，否则原子挤在一起分不清 */
+const FlatAtomShadedTypes = new Set(['ball-and-stick', 'spacefill', 'line']);
+
 /** 当前全局外观（平光 ignoreLight + 材质 material），新建表示时套用，保证与当前风格一致 */
-function currentStyleParams(plugin: PluginContext) {
+function currentStyleParams(plugin: PluginContext, reprType?: string) {
     const opts = plugin.managers.structure.component.state.options;
-    return { ignoreLight: opts.ignoreLight, material: opts.materialStyle };
+    const ignoreLight = reprType && FlatAtomShadedTypes.has(reprType) ? false : opts.ignoreLight;
+    return { ignoreLight, material: opts.materialStyle };
 }
 
 async function addChainPresentationFor(plugin: PluginContext, structure: ReturnType<typeof getStructures>[number], pres: ChainPresentation) {
@@ -387,8 +391,6 @@ async function addChainPresentationFor(plugin: PluginContext, structure: ReturnT
 
     const layers = getLayers(pres);
     const desiredTags = new Set(layers.map(l => `qb-chain-repr-${pres.chain}-${l.type}`));
-    // 新建表示时套用当前全局外观（平光/材质），否则高反光下新建的表示会回落到默认哑光
-    const styleParams = currentStyleParams(plugin);
 
     for (const layer of layers) {
         const color = layer.color ?? 'chain-id';
@@ -403,6 +405,9 @@ async function addChainPresentationFor(plugin: PluginContext, structure: ReturnT
         const reprTypeParams = isTube
             ? { ...(layer.alpha !== undefined ? { alpha: layer.alpha } : {}), visuals: ['polymer-tube'], sizeFactor: (layer.size ?? 0.08) * 2 }
             : typeParams;
+
+        // 新建表示时套用当前全局外观（平光/材质），否则高反光下新建的表示会回落到默认哑光
+        const styleParams = currentStyleParams(plugin, reprType);
 
         const repr = await plugin.builders.structure.representation.addRepresentation(comp, {
             type: reprType,
@@ -549,7 +554,7 @@ export async function showLigands(plugin: PluginContext) {
                     type: 'ball-and-stick',
                     color: 'element-symbol',
                     colorParams: { carbonColor: { name: 'element-symbol', params: {} } },
-                    typeParams: currentStyleParams(plugin),
+                    typeParams: currentStyleParams(plugin, 'ball-and-stick'),
                 }, { tag: 'qb-ligand-repr' });
             }
         }
@@ -652,6 +657,8 @@ export async function setHydrogens(plugin: PluginContext, mode: HydrogenMode) {
         ...plugin.managers.structure.component.state.options,
         hydrogens: HydrogenOption[mode],
     });
+    // setOptions 会把全局 ignoreLight（扁平风=true）刷到所有表示，需再让球棍/空间填充保持立体明暗
+    await applyAtomShading(plugin);
 }
 
 /** 结构加载后重新套用当前氢设置（配体等新组件也跟随） */
@@ -1023,6 +1030,24 @@ export function isShadowOn(plugin: PluginContext) { return plugin.canvas3d?.prop
 export function setOcclusion(plugin: PluginContext, on: boolean) { setPostprocessing(plugin, 'occlusion', on); }
 export function isOcclusionOn(plugin: PluginContext) { return plugin.canvas3d?.props.postprocessing.occlusion.name === 'on'; }
 
+/** 扁平风下球棍/空间填充/line 保持立体明暗，否则原子挤在一起分不清。新加载的结构也要套用。 */
+export async function applyAtomShading(plugin: PluginContext) {
+    const update = plugin.build();
+    let any = false;
+    for (const s of getStructures(plugin)) {
+        for (const c of s.components) {
+            for (const r of c.representations) {
+                const name = (r.cell.transform.params as any)?.type?.name;
+                if (name === 'ball-and-stick' || name === 'spacefill' || name === 'line') {
+                    update.to(r.cell).update(old => { (old as any).type.params.ignoreLight = false; });
+                    any = true;
+                }
+            }
+        }
+    }
+    if (any) await update.commit({ canUndo: 'Atom Shading' });
+}
+
 /** 插画风：平光(ignoreLight) + 描边/遮蔽后处理，卡通看起来像 illustrative */
 export async function setIllustrative(plugin: PluginContext, on: boolean, materialStyle?: any) {
     await plugin.managers.structure.component.setOptions({
@@ -1035,22 +1060,7 @@ export async function setIllustrative(plugin: PluginContext, on: boolean, materi
     await refreshHighlightMode(plugin, getHighlightMode());
 
     // 扁平风下球棍/空间填充保持立体明暗，否则原子挤在一起分不清
-    if (on) {
-        const update = plugin.build();
-        let any = false;
-        for (const s of getStructures(plugin)) {
-            for (const c of s.components) {
-                for (const r of c.representations) {
-                    const name = (r.cell.transform.params as any)?.type?.name;
-                    if (name === 'ball-and-stick' || name === 'spacefill' || name === 'line') {
-                        update.to(r.cell).update(old => { (old as any).type.params.ignoreLight = false; });
-                        any = true;
-                    }
-                }
-            }
-        }
-        if (any) await update.commit();
-    }
+    await applyAtomShading(plugin);
 
     if (!plugin.canvas3d) return;
     // 明暗通道（遮蔽 SSAO）默认开，描边默认开
@@ -1236,6 +1246,8 @@ export async function loadStructureFile(plugin: PluginContext, file: File, mode:
     const result = await loaders.loadFiles(plugin, [file]);
     // loadFiles 走 default 预设，会展开第一个生物组装体；这里改为只显示一个 protomer
     if (!/\.(molj|molx)$/i.test(file.name)) { await useProtomerStructure(plugin); resetSymmetryExpanded(); }
+    // 新加载的结构也要套用「球棍/空间填充保持立体明暗」（扁平风下）
+    await applyAtomShading(plugin);
     const all = getAllStructures(plugin);
     if (all.length) structureFileNameMap(plugin).set(all[all.length - 1].cell.transform.ref, file.name);
     setActiveStructure(plugin, mode === 'add' ? all.length - 1 : 0);

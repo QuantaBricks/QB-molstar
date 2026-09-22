@@ -37,6 +37,8 @@ export class EasyViewer extends Viewer {
         const r = await p;
         await Actions.useProtomerStructure(this.plugin);
         Actions.resetSymmetryExpanded();
+        // 扁平风下球棍/空间填充保持立体明暗，新加载的结构也要套用
+        await Actions.applyAtomShading(this.plugin);
         return r;
     }
 
