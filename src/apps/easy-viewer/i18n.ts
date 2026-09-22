@@ -59,6 +59,7 @@ interface Dict {
     noChains: string;
 
     water: string;
+    symmetry: string;
     noHydrogen: string;
     polarHydrogen: string;
     allHydrogen: string;
@@ -145,6 +146,7 @@ const zh: Dict = {
     opacity: '透明',
     noChains: '未检测到链',
     water: '水',
+    symmetry: '对称',
     noHydrogen: '无氢',
     polarHydrogen: '极性氢',
     allHydrogen: '全部氢',
@@ -249,6 +251,7 @@ const en: Dict = {
     opacity: 'Opacity',
     noChains: 'No chains detected',
     water: 'Water',
+    symmetry: 'Symmetry',
     noHydrogen: 'No H',
     polarHydrogen: 'Polar H',
     allHydrogen: 'All H',
@@ -353,6 +356,7 @@ const ja: Dict = {
     opacity: '透明度',
     noChains: 'チェーンがありません',
     water: '水',
+    symmetry: '対称',
     noHydrogen: '水素なし',
     polarHydrogen: '極性水素',
     allHydrogen: '全水素',
@@ -457,6 +461,7 @@ const zhHant: Dict = {
     opacity: '透明',
     noChains: '未偵測到鏈',
     water: '水',
+    symmetry: '對稱',
     noHydrogen: '無氫',
     polarHydrogen: '極性氫',
     allHydrogen: '全部氫',
@@ -561,6 +566,7 @@ const ko: Dict = {
     opacity: '투명도',
     noChains: '체인 없음',
     water: '물',
+    symmetry: '대칭',
     noHydrogen: '수소 없음',
     polarHydrogen: '극성 수소',
     allHydrogen: '모든 수소',
@@ -665,6 +671,7 @@ const es: Dict = {
     opacity: 'Opacidad',
     noChains: 'No se detectaron cadenas',
     water: 'Agua',
+    symmetry: 'Simetría',
     noHydrogen: 'Sin H',
     polarHydrogen: 'H polares',
     allHydrogen: 'Todo H',

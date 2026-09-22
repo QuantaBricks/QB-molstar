@@ -27,6 +27,46 @@ export type { BaseStyle, EasyColorTheme, EasyStyle, HydrogenMode } from './easy-
 export type { ChainPresentation, EasyRepresentationType, EasyViewerColorOptions, EasyViewerInputs, PharmacophorePoint, Pocket } from './types';
 
 export class EasyViewer extends Viewer {
+    // ---- 加载 ----
+
+    /**
+     * 默认只显示一个 protomer（而不是 Mol* 默认展开的第一个生物组装体）。
+     * 对称蛋白（如 1gtb/4lpk）不会因为对称操作多出拷贝链。需要时调用 useAssembly()/toggleSymmetry()。
+     */
+    private async _useModelAfterLoad<T>(p: Promise<T>): Promise<T> {
+        const r = await p;
+        await Actions.useProtomerStructure(this.plugin);
+        Actions.resetSymmetryExpanded();
+        return r;
+    }
+
+    loadStructureFromData(...args: Parameters<Viewer['loadStructureFromData']>) {
+        return this._useModelAfterLoad(super.loadStructureFromData(...args));
+    }
+
+    loadStructureFromUrl(...args: Parameters<Viewer['loadStructureFromUrl']>) {
+        return this._useModelAfterLoad(super.loadStructureFromUrl(...args));
+    }
+
+    loadPdb(...args: Parameters<Viewer['loadPdb']>) {
+        return this._useModelAfterLoad(super.loadPdb(...args));
+    }
+
+    /** 切换当前结构为生物组装体（id 为空则用第一个组装体） */
+    useAssembly(id = '') {
+        return Actions.useAssemblyStructure(this.plugin, id);
+    }
+
+    /** 切换当前结构为模型（不对称单元） */
+    useModel() {
+        return Actions.useModelStructure(this.plugin);
+    }
+
+    /** 在「单个 protomer」与「对称展开」之间切换 */
+    toggleSymmetry() {
+        return Actions.toggleSymmetry(this.plugin);
+    }
+
     // ---- 样式与配色 ----
 
     /** 一键样式：'auto' | 'polymer-and-ligand' | 'atomic-detail' | 'molecular-surface' | ... */

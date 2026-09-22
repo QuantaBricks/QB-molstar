@@ -287,6 +287,8 @@ export function EasyViewportControls() {
     const phTypes = Array.from(new Set(phPoints.map(pt => pt.type)));
     const [hasWater, setHasWater] = React.useState(() => Actions.hasWater(plugin));
     const [waterVisible, setWaterVisible] = React.useState(() => Actions.isWaterVisible(plugin));
+    const [hasSymm, setHasSymm] = React.useState(() => Actions.hasSymmetry(plugin));
+    const symmExpanded = React.useSyncExternalStore(Actions.subscribeSymmetryExpanded, Actions.isSymmetryExpanded);
     const [hasH, setHasH] = React.useState(() => Actions.hasHydrogens(plugin));
     const [hMode, setHMode] = React.useState<Actions.HydrogenMode>(() => Actions.getHydrogenMode());
     const [hMenuOpen, setHMenuOpen] = React.useState(false);
@@ -313,6 +315,7 @@ export function EasyViewportControls() {
             setSelectionMode(plugin.selectionMode);
             setHasWater(Actions.hasWater(plugin));
             setWaterVisible(Actions.isWaterVisible(plugin));
+            setHasSymm(Actions.hasSymmetry(plugin));
             setHasH(Actions.hasHydrogens(plugin));
         };
         update();
@@ -321,6 +324,9 @@ export function EasyViewportControls() {
             plugin.behaviors.interaction.selectionMode.subscribe(update),
             plugin.events.canvas3d.settingsUpdated.subscribe(update),
             Actions.subscribeInteractionsVisible(update),
+            // cell.created/removed 在 state.transaction 内触发，此时 hierarchy.current 仍是旧值，
+            // hasWater/hasLigands 会算错且之后不会刷新。订阅 hierarchy selection 行为可在事务结束后拿到最新 hierarchy。
+            plugin.managers.structure.hierarchy.behaviors.selection.subscribe(update),
             plugin.state.data.events.cell.created.subscribe(update),
             plugin.state.data.events.cell.removed.subscribe(update),
         ];
@@ -365,6 +371,10 @@ export function EasyViewportControls() {
                     className={'easy-vp-btn easy-vp-btn-text' + (waterVisible ? ' easy-vp-btn-active' : '')}
                     title={I18n.t('water')}
                     onClick={() => { const v = !waterVisible; setWaterVisible(v); Actions.setWaterVisible(plugin, v); }}>{I18n.t('water')}</button>}
+                {hasSymm && <button
+                    className={'easy-vp-btn easy-vp-btn-text' + (symmExpanded ? ' easy-vp-btn-active' : '')}
+                    title={I18n.t('symmetry')}
+                    onClick={() => Actions.toggleSymmetry(plugin)}>{I18n.t('symmetry')}</button>}
                 {hasH && <div style={{ position: 'relative' }}>
                     <button className={'easy-vp-btn easy-vp-btn-text' + (hMode !== 'none' ? ' easy-vp-btn-active' : '')}
                         title={I18n.t('polarHydrogen')}

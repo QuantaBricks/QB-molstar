@@ -13,6 +13,8 @@ import { Box3D } from '../../mol-math/geometry';
 import { GlbExporter } from '../../extensions/geo-export/glb-exporter';
 import * as loaders from '../../extensions/plugin/loaders';
 import { StateSelection } from '../../mol-state';
+import { StateTransforms } from '../../mol-plugin-state/transforms';
+import { ModelSymmetry } from '../../mol-model-formats/structure/property/symmetry';
 import { PluginStateObject } from '../../mol-plugin-state/objects';
 import { SetUtils } from '../../mol-util/set';
 import { Task } from '../../mol-task';
@@ -22,7 +24,7 @@ import { Color } from '../../mol-util/color';
 import { ParamDefinition as PD } from '../../mol-util/param-definition';
 import { OutlineParams } from '../../mol-canvas3d/passes/outline';
 import { ShadowParams } from '../../mol-canvas3d/passes/shadow';
-import { Vec3 } from '../../mol-math/linear-algebra';
+import { Vec3, Mat4 } from '../../mol-math/linear-algebra';
 import { MolScriptBuilder as MS } from '../../mol-script/language/builder';
 import { StructureElement, StructureProperties, Structure, Unit } from '../../mol-model/structure';
 import { Loci } from '../../mol-model/loci';
@@ -130,11 +132,13 @@ export function hasFocusHighlight(plugin: PluginContext): boolean {
     return !!plugin.managers.structure.focus.behaviors.current.value;
 }
 
-export function hasContent(plugin: PluginContext): boolean {    return getAllStructures(plugin).length > 0;
+export function hasContent(plugin: PluginContext): boolean {
+    return getAllStructures(plugin).length > 0;
 }
 
 /** 是否含配体（非聚合物实体） */
-export function hasLigands(plugin: PluginContext): boolean {    for (const s of getStructures(plugin)) {
+export function hasLigands(plugin: PluginContext): boolean {
+    for (const s of getStructures(plugin)) {
         const model = s.cell.obj?.data?.model;
         if (!model?.entities) continue;
         const types = model.entities.data.type;
@@ -211,7 +215,7 @@ export async function addLigandLayer(plugin: PluginContext, type: EasyRepresenta
                 type: type as any,
                 color: 'element-symbol',
                 colorParams: LigandElementParams,
-                ...(isSurface ? { typeParams: { quality: currentSurfaceQuality() } } : {}),
+                typeParams: { ...(isSurface ? { quality: currentSurfaceQuality() } : {}), ...currentStyleParams(plugin) },
             }, { tag: `qb-ligand-repr-${type}` });
         }
     }, { canUndo: 'Add Ligand Layer' });
@@ -366,6 +370,12 @@ export function getLayers(pres: ChainPresentation): RepresentationLayer[] {
     return types.map(type => ({ type, color: pres.color, colorOptions: pres.colorOptions, alpha: pres.alpha, visible: pres.visible }));
 }
 
+/** 当前全局外观（平光 ignoreLight + 材质 material），新建表示时套用，保证与当前风格一致 */
+function currentStyleParams(plugin: PluginContext) {
+    const opts = plugin.managers.structure.component.state.options;
+    return { ignoreLight: opts.ignoreLight, material: opts.materialStyle };
+}
+
 async function addChainPresentationFor(plugin: PluginContext, structure: ReturnType<typeof getStructures>[number], pres: ChainPresentation) {
     const expr = MS.struct.generator.atomGroups({
         'chain-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_asym_id(), pres.chain])
@@ -377,6 +387,8 @@ async function addChainPresentationFor(plugin: PluginContext, structure: ReturnT
 
     const layers = getLayers(pres);
     const desiredTags = new Set(layers.map(l => `qb-chain-repr-${pres.chain}-${l.type}`));
+    // 新建表示时套用当前全局外观（平光/材质），否则高反光下新建的表示会回落到默认哑光
+    const styleParams = currentStyleParams(plugin);
 
     for (const layer of layers) {
         const color = layer.color ?? 'chain-id';
@@ -396,7 +408,7 @@ async function addChainPresentationFor(plugin: PluginContext, structure: ReturnT
             type: reprType,
             color,
             colorParams: colorThemeParams(color, layer.colorOptions),
-            typeParams: reprTypeParams,
+            typeParams: { ...(reprTypeParams || {}), ...styleParams },
         }, { tag: `qb-chain-repr-${pres.chain}-${layer.type}` });
 
         if (repr) {
@@ -536,7 +548,8 @@ export async function showLigands(plugin: PluginContext) {
                 await plugin.builders.structure.representation.addRepresentation(ligand, {
                     type: 'ball-and-stick',
                     color: 'element-symbol',
-                    colorParams: { carbonColor: { name: 'element-symbol', params: {} } }
+                    colorParams: { carbonColor: { name: 'element-symbol', params: {} } },
+                    typeParams: currentStyleParams(plugin),
                 }, { tag: 'qb-ligand-repr' });
             }
         }
@@ -644,6 +657,147 @@ export async function setHydrogens(plugin: PluginContext, mode: HydrogenMode) {
 /** 结构加载后重新套用当前氢设置（配体等新组件也跟随） */
 export async function reapplyHydrogens(plugin: PluginContext) {
     await setHydrogens(plugin, hydrogenMode);
+}
+
+/**
+ * 把已加载结构从「生物组装体」切换为「模型（不对称单元）」。
+ *
+ * Mol* 的 default 预设会展开第一个生物组装体（见 hierarchy-preset.ts 的 'Default (Assembly)'），
+ * 对称蛋白（如 1gtb，AU 只有一条链、组装体是二聚体）会因此多出对称拷贝的链。
+ * easy-viewer 默认只看沉积的不对称单元，加载后统一把 assembly/auto 改成 model。
+ */
+export async function useModelStructure(plugin: PluginContext) {
+    const update = plugin.build();
+    let changed = false;
+    for (const cell of plugin.state.data.cells.values()) {
+        if (cell.transform.transformer !== StateTransforms.Model.StructureFromModel) continue;
+        const params = cell.transform.params as any;
+        const name = params?.type?.name;
+        if (name === 'assembly' || name === 'auto') {
+            update.to(cell.transform.ref).update({ ...params, type: { name: 'model', params: {} } });
+            changed = true;
+        }
+    }
+    if (changed) await update.commit({ canUndo: 'Use Model Structure' });
+}
+
+/** 把已加载结构切换为生物组装体（id 为空则用第一个组装体） */
+export async function useAssemblyStructure(plugin: PluginContext, id = '') {
+    const update = plugin.build();
+    let changed = false;
+    for (const cell of plugin.state.data.cells.values()) {
+        if (cell.transform.transformer !== StateTransforms.Model.StructureFromModel) continue;
+        const params = cell.transform.params as any;
+        if (params?.type?.name === 'model') {
+            update.to(cell.transform.ref).update({ ...params, type: { name: 'assembly', params: { id } } });
+            changed = true;
+        }
+    }
+    if (changed) await update.commit({ canUndo: 'Use Assembly Structure' });
+}
+
+/** 读取模型第一个生物组装体信息 */
+function firstAssembly(model: any) {
+    const sym = ModelSymmetry.Provider.get(model);
+    const asm = sym?.assemblies?.[0];
+    if (!sym || !asm) return undefined;
+    const asymIds: string[] = [];
+    let maxOperators = 0;
+    for (const g of asm.operatorGroups) {
+        if (g.asymIds) asymIds.push(...g.asymIds);
+        maxOperators = Math.max(maxOperators, g.operators.length);
+    }
+    return { sym, asm, asymIds, maxOperators };
+}
+
+function identityOperatorIndex(sym: any): number {
+    const operators = sym?.spacegroup?.operators;
+    if (operators) {
+        for (let i = 0; i < operators.length; i++) {
+            if (Mat4.isIdentity(operators[i])) return i;
+        }
+    }
+    return 0;
+}
+
+function forEachStructureCell(plugin: PluginContext, fn: (ref: string, model: any, params: any) => void) {
+    for (const cell of plugin.state.data.cells.values()) {
+        if (cell.transform.transformer !== StateTransforms.Model.StructureFromModel) continue;
+        const parent = cell.transform.parent ? plugin.state.data.cells.get(cell.transform.parent) : undefined;
+        const model = parent?.obj?.data;
+        if (!model) continue;
+        fn(cell.transform.ref, model, cell.transform.params as any);
+    }
+}
+
+/**
+ * 默认只显示一个 protomer：
+ * 用第一个生物组装体的 asym 列表 + 恒等对称操作构建结构（对称蛋白也只保留一份拷贝及其配体/水）。
+ */
+export async function useProtomerStructure(plugin: PluginContext) {
+    const update = plugin.build();
+    let changed = false;
+    forEachStructureCell(plugin, (ref, model, params) => {
+        const info = firstAssembly(model);
+        if (!info || info.asymIds.length === 0) return;
+        const type = {
+            name: 'symmetry-assembly',
+            params: { generators: [{ asymIds: info.asymIds, operators: [{ index: identityOperatorIndex(info.sym), shift: Vec3.zero() }] }] }
+        };
+        update.to(ref).update({ ...params, type });
+        changed = true;
+    });
+    if (changed) await update.commit({ canUndo: 'Use Protomer Structure' });
+}
+
+/** 是否具有可展开的对称性（含生物组装体或多个聚合物链） */
+export function hasSymmetry(plugin: PluginContext): boolean {
+    for (const s of getStructures(plugin)) {
+        const model = s.cell.obj?.data?.model;
+        if (model && ModelSymmetry.Provider.get(model)?.assemblies.length) return true;
+    }
+    return getAvailableChains(plugin).length > 1;
+}
+
+/** 按对称性展开：组装体含对称操作时展开为完整组装体，否则显示不对称单元的全部链 */
+export async function expandSymmetry(plugin: PluginContext) {
+    const update = plugin.build();
+    let changed = false;
+    forEachStructureCell(plugin, (ref, model, params) => {
+        const info = firstAssembly(model);
+        if (!info) return;
+        const type = info.maxOperators > 1
+            ? { name: 'assembly', params: { id: info.asm.id } }
+            : { name: 'model', params: {} };
+        update.to(ref).update({ ...params, type });
+        changed = true;
+    });
+    if (changed) await update.commit({ canUndo: 'Expand Symmetry' });
+}
+
+let symmetryExpanded = false;
+const symmetryListeners = new Set<() => void>();
+
+export function isSymmetryExpanded() { return symmetryExpanded; }
+
+export function subscribeSymmetryExpanded(fn: () => void) {
+    symmetryListeners.add(fn);
+    return () => { symmetryListeners.delete(fn); };
+}
+
+/** 载入新结构后重置对称展开状态 */
+export function resetSymmetryExpanded() {
+    if (!symmetryExpanded) return;
+    symmetryExpanded = false;
+    for (const fn of symmetryListeners) fn();
+}
+
+/** 在「单个 protomer」与「对称展开」之间切换 */
+export async function toggleSymmetry(plugin: PluginContext) {
+    if (symmetryExpanded) await useProtomerStructure(plugin);
+    else await expandSymmetry(plugin);
+    symmetryExpanded = !symmetryExpanded;
+    for (const fn of symmetryListeners) fn();
 }
 
 //
@@ -1080,6 +1234,8 @@ export function loadStateFile(plugin: PluginContext, file: File) {
 export async function loadStructureFile(plugin: PluginContext, file: File, mode: 'new' | 'add' = 'new') {
     if (mode === 'new') { await plugin.clear(); clearPharmacophore(plugin); }
     const result = await loaders.loadFiles(plugin, [file]);
+    // loadFiles 走 default 预设，会展开第一个生物组装体；这里改为只显示一个 protomer
+    if (!/\.(molj|molx)$/i.test(file.name)) { await useProtomerStructure(plugin); resetSymmetryExpanded(); }
     const all = getAllStructures(plugin);
     if (all.length) structureFileNameMap(plugin).set(all[all.length - 1].cell.transform.ref, file.name);
     setActiveStructure(plugin, mode === 'add' ? all.length - 1 : 0);
