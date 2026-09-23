@@ -498,7 +498,7 @@ export class EasyControls extends PluginUIComponent<{}, {
         perChainActive: false,
         chainTarget: 'all',
         illustrative: false,
-        baseStyle: '3d' as Actions.BaseStyle | null,
+        baseStyle: 'reflective' as Actions.BaseStyle | null,
         labelColor: 0x000000,
         labelBgColor: 0xffffff,
         labelBgOpacity: 0,
@@ -537,6 +537,7 @@ export class EasyControls extends PluginUIComponent<{}, {
         this.subscribe(this.plugin.state.data.events.cell.stateUpdated, this.scheduleUpdate);
         this.subscribe(this.plugin.events.canvas3d.settingsUpdated, this.scheduleUpdate);
         this.subscribe({ subscribe: (fn: any) => Actions.subscribePharmacophore(fn) } as any, this.scheduleUpdate);
+        this.subscribe({ subscribe: (fn: any) => Actions.subscribeHighlightedResidues(fn) } as any, () => this.forceUpdate());
         this.targetedSub = Actions.subscribeTargetedChain(() => {
             const target = Actions.getTargetedChain() ?? 'all';
             if (this.state.chainTarget !== target) this.setState({ chainTarget: target });
@@ -1109,6 +1110,20 @@ export class EasyControls extends PluginUIComponent<{}, {
                         onChange={e => { Actions.setInteractionsIncludeWater(p, e.target.checked); this.forceUpdate(); }} />
                     <small>{I18n.t('water')}</small>
                 </label>
+                {(() => {
+                    const residues = Actions.getHighlightedResidues();
+                    if (residues.length === 0) return null;
+                    return <div style={{ marginTop: 6 }}>
+                        <small style={{ color: '#6b7280' }}>{I18n.t('residues')} ({residues.length})</small>
+                        <div style={{ maxHeight: 150, overflowY: 'auto', marginTop: 2, border: '1px solid #e6e8ec', borderRadius: 6, background: '#fff' }}>
+                            {residues.map((r, i) => <div key={`${r.chain}:${r.comp}:${r.seq}:${i}`}
+                                style={{ display: 'flex', gap: 6, padding: '2px 6px', fontSize: 13, borderTop: i ? '1px solid #f1f3f5' : 'none' }}>
+                                <span style={{ fontWeight: 600 }}>{r.comp}{r.seq}</span>
+                                <span style={{ color: '#9aa0a6', marginLeft: 'auto' }}>{r.chain}</span>
+                            </div>)}
+                        </div>
+                    </div>;
+                })()}
             </Section>}
             <Section title={I18n.t('label')}>
                 <div style={{ ...rowStyle, marginTop: 0 }}>

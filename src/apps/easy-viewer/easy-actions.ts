@@ -39,7 +39,8 @@ import { Interactions } from '../../mol-model-props/computed/interactions/intera
 
 export type { EasyColorTheme, EasyRepresentationType, EasyStyle, HydrogenMode } from './types';
 export { setupResidueLabels, getLabelStyle, setLabelScale, setLabelColor, setLabelBackgroundColor, setLabelBackgroundOpacity } from './residue-labels';
-export { setupFocusVisuals, setInteractionsVisible, areInteractionsVisible, subscribeInteractionsVisible, setInteractionsIncludeWater, areWaterInteractionsVisible, setHighlightScale, setHighlightLineScale, setInteractionLineScale, getHighlightScale, getHighlightLineScale, getInteractionLineScale, getHighlightMode, setHighlightMode } from './focus-visuals';
+export { setupFocusVisuals, setInteractionsVisible, areInteractionsVisible, subscribeInteractionsVisible, setInteractionsIncludeWater, areWaterInteractionsVisible, setHighlightScale, setHighlightLineScale, setInteractionLineScale, getHighlightScale, getHighlightLineScale, getInteractionLineScale, getHighlightMode, setHighlightMode, getHighlightedResidues, subscribeHighlightedResidues } from './focus-visuals';
+export type { HighlightedResidue } from './focus-visuals';
 
 export const EasyColorThemes: [EasyColorTheme, string][] = [
     ['element-symbol', '元素'],
@@ -666,6 +667,12 @@ export async function reapplyHydrogens(plugin: PluginContext) {
     await setHydrogens(plugin, hydrogenMode);
 }
 
+/** 结构加载后把当前全局外观（材质/平光）套用到所有表示，并保持球棍类立体明暗 */
+export async function reapplyStyle(plugin: PluginContext) {
+    await plugin.managers.structure.component.setOptions(plugin.managers.structure.component.state.options);
+    await applyAtomShading(plugin);
+}
+
 /**
  * 把已加载结构从「生物组装体」切换为「模型（不对称单元）」。
  *
@@ -1246,8 +1253,8 @@ export async function loadStructureFile(plugin: PluginContext, file: File, mode:
     const result = await loaders.loadFiles(plugin, [file]);
     // loadFiles 走 default 预设，会展开第一个生物组装体；这里改为只显示一个 protomer
     if (!/\.(molj|molx)$/i.test(file.name)) { await useProtomerStructure(plugin); resetSymmetryExpanded(); }
-    // 新加载的结构也要套用「球棍/空间填充保持立体明暗」（扁平风下）
-    await applyAtomShading(plugin);
+    // 新加载的结构套用当前全局外观（材质/平光）并保持球棍类立体明暗
+    await reapplyStyle(plugin);
     const all = getAllStructures(plugin);
     if (all.length) structureFileNameMap(plugin).set(all[all.length - 1].cell.transform.ref, file.name);
     setActiveStructure(plugin, mode === 'add' ? all.length - 1 : 0);

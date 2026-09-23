@@ -39,34 +39,35 @@ function waterExpression() {
  * 在根结构上重算相互作用并覆盖属性值：
  * includeWater=false 时用 unitPairTest 排除所有水所在 unit 的相互作用对。
  * 因为 Structure.create 会把 parent 塌到根结构，无法靠父结构排除水，只能重算。
+ *
+ * 注意：includeWater=true 也必须「显式重算并写回」，不能只删缓存依赖惰性重算，
+ * 否则从「无水」切回「有水」时相互作用不会重新出现。
  */
 async function applyWaterFilterToInteractions(plugin: PluginContext, structure: any, includeWater: boolean) {
     const root = structure.root;
     const key = InteractionsProvider.descriptor.name;
-    if (includeWater) {
-        if (root.currentPropertyData && root.currentPropertyData[key]) delete root.currentPropertyData[key];
-        return;
-    }
     const waterUnitIds = new Set<number>();
-    const l = StructureElement.Location.create(root);
-    for (const u of root.units) {
-        l.unit = u; l.element = u.elements[0];
-        if (StructureProperties.entity.type(l) === 'water') waterUnitIds.add(u.id);
+    if (!includeWater) {
+        const l = StructureElement.Location.create(root);
+        for (const u of root.units) {
+            l.unit = u; l.element = u.elements[0];
+            if (StructureProperties.entity.type(l) === 'water') waterUnitIds.add(u.id);
+        }
     }
-    if (waterUnitIds.size === 0) return;
+    const options = !includeWater && waterUnitIds.size > 0
+        ? { unitPairTest: (a: any, b: any) => !waterUnitIds.has(a.id) && !waterUnitIds.has(b.id) }
+        : {};
     try {
-        await plugin.runTask(Task.create('Water interactions filter', async taskCtx => {
+        await plugin.runTask(Task.create('Compute interactions', async taskCtx => {
             const ctx = { runtime: taskCtx, assetManager: plugin.managers.asset, errorContext: plugin.errorContext };
-            const value = await computeInteractions(ctx as any, root, {}, {
-                unitPairTest: (a: any, b: any) => !waterUnitIds.has(a.id) && !waterUnitIds.has(b.id)
-            });
+            const value = await computeInteractions(ctx as any, root, {}, options);
             root.currentPropertyData[key] = {
                 props: PD.getDefaultValues(InteractionsProvider.defaultParams),
                 data: ValueBox.create(value)
             };
         }));
     } catch (e) {
-        console.warn('Water interactions filter failed:', e);
+        console.warn('Interactions filter failed:', e);
     }
 }
 
@@ -198,6 +199,7 @@ function installFocusVisuals(plugin: PluginContext) {
         highlightReprRefs = [];
         interactionsReprRef = undefined;
         activeKey = null;
+        setHighlightedResidues([]);
         await deleteRef(plugin, a);
         await deleteRef(plugin, b);
         await deleteRef(plugin, c);
@@ -222,7 +224,7 @@ function installFocusVisuals(plugin: PluginContext) {
 
         const parent = plugin.helpers.substructureParent.get(loci.structure);
         const parentStructure = parent?.obj?.data;
-        if (!parent || !parentStructure) return;
+        if (!parent || !parentStructure) { setHighlightedResidues([]); return; }
 
         const entityType = StructureProperties.entity.type(firstLocation);
         const isLigand = entityType !== 'polymer' && entityType !== 'water';
@@ -301,6 +303,8 @@ function installFocusVisuals(plugin: PluginContext) {
                 await addLabelRepresentation(plugin, partnerComponent);
             }
         }
+
+        setHighlightedResidues(collectHighlightedResidues(plugin, [highlightRef, partnerRef]));
     };
 
     const sub = plugin.managers.structure.focus.behaviors.current.subscribe((entry: any) => {
@@ -328,6 +332,70 @@ let interactionsIncludeWater = true;
 let currentInteractionsRef: string | undefined;
 let forceRefresh: (() => void) | undefined;
 const interactionsVisListeners = new Set<() => void>();
+
+/** 高亮残基列表项 */
+export interface HighlightedResidue { chain: string; comp: string; seq: string; }
+
+let highlightedResidues: HighlightedResidue[] = [];
+const highlightedResidueListeners = new Set<() => void>();
+
+export function getHighlightedResidues(): HighlightedResidue[] {
+    return highlightedResidues;
+}
+
+export function subscribeHighlightedResidues(fn: () => void) {
+    highlightedResidueListeners.add(fn);
+    return { unsubscribe: () => { highlightedResidueListeners.delete(fn); } };
+}
+
+function setHighlightedResidues(list: HighlightedResidue[]) {
+    highlightedResidues = list;
+    for (const fn of highlightedResidueListeners) fn();
+}
+
+/** 枚举一个结构里出现过的残基（去重、按链/序号排序） */
+function residuesOf(structure: any): HighlightedResidue[] {
+    const result: HighlightedResidue[] = [];
+    const seen = new Set<string>();
+    for (const unit of structure.units) {
+        const { residues, chains, chainAtomSegments, residueAtomSegments } = unit.model.atomicHierarchy;
+        for (let i = 0; i < unit.elements.length; i++) {
+            const e = unit.elements[i];
+            const r = residueAtomSegments.index[e];
+            const chain = chains.label_asym_id.value(chainAtomSegments.index[e]);
+            const comp = residues.label_comp_id.value(r);
+            const seq = residues.auth_seq_id.value(r);
+            const id = `${chain}:${comp}:${seq}`;
+            if (seen.has(id)) continue;
+            seen.add(id);
+            result.push({ chain, comp, seq: String(seq) });
+        }
+    }
+    return result;
+}
+
+function collectHighlightedResidues(plugin: PluginContext, refs: (string | undefined)[]): HighlightedResidue[] {
+    const result: HighlightedResidue[] = [];
+    const seen = new Set<string>();
+    for (const ref of refs) {
+        if (!ref) continue;
+        const data = plugin.state.data.cells.get(ref)?.obj?.data;
+        if (!data) continue;
+        for (const r of residuesOf(data)) {
+            const id = `${r.chain}:${r.comp}:${r.seq}`;
+            if (seen.has(id)) continue;
+            seen.add(id);
+            result.push(r);
+        }
+    }
+    result.sort((a, b) => {
+        if (a.chain !== b.chain) return a.chain < b.chain ? -1 : 1;
+        const na = parseInt(a.seq, 10), nb = parseInt(b.seq, 10);
+        if (!isNaN(na) && !isNaN(nb) && na !== nb) return na - nb;
+        return a.seq < b.seq ? -1 : a.seq > b.seq ? 1 : 0;
+    });
+    return result;
+}
 
 /** 是否显示与水分子的相互作用 */
 export function areWaterInteractionsVisible() { return interactionsIncludeWater; }
@@ -359,7 +427,7 @@ export function subscribeInteractionsVisible(fn: () => void) {
 let highlightScale = 0.5;
 let highlightLineScale = 2;
 let interactionLineScale = 0.2;
-let highlightMode: 'ball-and-stick' | 'line' = 'ball-and-stick';
+let highlightMode: 'ball-and-stick' | 'line' = 'line';
 let interactionsReprRef: string | undefined;
 let highlightReprRefs: string[] = [];
 

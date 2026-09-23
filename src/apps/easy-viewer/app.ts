@@ -37,8 +37,8 @@ export class EasyViewer extends Viewer {
         const r = await p;
         await Actions.useProtomerStructure(this.plugin);
         Actions.resetSymmetryExpanded();
-        // 扁平风下球棍/空间填充保持立体明暗，新加载的结构也要套用
-        await Actions.applyAtomShading(this.plugin);
+        // 新加载的结构套用当前全局外观（材质/平光）并保持球棍类立体明暗
+        await Actions.reapplyStyle(this.plugin);
         return r;
     }
 
@@ -270,6 +270,9 @@ export class EasyViewer extends Viewer {
 
         // 默认只显示极性氢（与面板默认一致）
         void Actions.setHydrogens(plugin, 'polar');
+
+        // 默认外观：高反光
+        await Actions.setBaseStyle(plugin, 'reflective');
 
         plugin.state.updateBehavior(StructureFocusRepresentation, p => {
             p.expandRadius = 3;
