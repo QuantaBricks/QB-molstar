@@ -16,6 +16,9 @@ import { DefaultViewerOptions, ViewerOptions } from '../viewer/options';
 import { createViewerSpec } from '../viewer/plugin-spec';
 import { ViewerAutoPreset } from '../viewer/presets';
 import { PluginConfig } from '../../mol-plugin/config';
+import { Binding } from '../../mol-util/binding';
+import { ButtonsType, ModifiersKeys } from '../../mol-util/input/input-observer';
+import { DefaultTrackballBindings } from '../../mol-canvas3d/controls/trackball';
 import { StructureFocusRepresentation } from '../../mol-plugin/behavior/dynamic/selection/structure-focus-representation';
 import { EasyDefaultPreset } from './easy-default-preset';
 import { EasyControls, EasyViewport, EasyViewportControls } from './easy-controls';
@@ -237,6 +240,13 @@ export class EasyViewer extends Viewer {
                 p.builders.structure.representation.registerPreset(EasyDefaultPreset);
             }
         });
+
+        // 中键上下拖动只调相机景深范围，不改变相机与目标之间的距离。
+        plugin.canvas3d?.setAttribs({ trackball: { bindings: {
+            ...DefaultTrackballBindings,
+            dragFocus: Binding([Binding.Trigger(ButtonsType.Flag.Auxilary, ModifiersKeys.create())], 'Adjust clipping depth', 'Drag using ${triggers}'),
+            dragFocusZoom: Binding.Empty,
+        } } });
 
         // chemOrchestra 风格默认：白底、正常光照、焦点表示元素配色
         plugin.canvas3d?.setProps({

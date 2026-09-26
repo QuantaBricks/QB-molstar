@@ -8,6 +8,7 @@
 
 import { PluginContext } from '../../mol-plugin/context';
 import { PluginCommands } from '../../mol-plugin/commands';
+import { createStructureColorThemeParams } from '../../mol-plugin-state/helpers/structure-representation-params';
 import { produce } from '../../mol-util/produce';
 import { Box3D } from '../../mol-math/geometry';
 import { GlbExporter } from '../../extensions/geo-export/glb-exporter';
@@ -48,6 +49,7 @@ export const EasyColorThemes: [EasyColorTheme, string][] = [
     ['sequence-id', '序列彩虹'],
     ['secondary-structure', '二级结构'],
     ['hydrophobicity', '疏水'],
+    ['residue-charge', '残基电荷'],
     ['molecule-type', '分子类型'],
     ['residue-name', '残基'],
     ['uniform', '单色'],
@@ -153,6 +155,28 @@ export function hasLigands(plugin: PluginContext): boolean {
 
 const LigandComponentTag = 'structure-component-static-ligand';
 const LigandElementParams = { carbonColor: { name: 'element-symbol', params: {} } };
+const TubeReferenceRadius = 25;
+
+function tubeSizeFactor(size: number, structureRadius: number) {
+    return size * 2 * structureRadius / TubeReferenceRadius;
+}
+
+/** 从当前 putty 表示反算滑块值，让 UI 展示现有粗细，而不是猜测默认值。 */
+export function getTubeSize(plugin: PluginContext, chain: string): number | undefined {
+    const tag = `qb-chain-repr-${chain}-backbone`;
+    for (const s of getStructures(plugin)) {
+        const structureRadius = s.cell.obj?.data?.boundary?.sphere?.radius ?? TubeReferenceRadius;
+        for (const c of s.components) {
+            for (const r of c.representations) {
+                if (!(r.cell.transform.tags ?? []).includes(tag)) continue;
+                const params = r.cell.transform.params as any;
+                if (params?.type?.name !== 'putty' || typeof params.type.params?.sizeFactor !== 'number') continue;
+                return params.type.params.sizeFactor * TubeReferenceRadius / (2 * structureRadius);
+            }
+        }
+    }
+    return undefined;
+}
 
 function getLigandComponents(plugin: PluginContext) {
     const result: any[] = [];
@@ -241,8 +265,15 @@ export function setLigandLayerVisible(plugin: PluginContext, type: EasyRepresent
 export async function updateLigandLayerColor(plugin: PluginContext, type: EasyRepresentationType, color: EasyColorTheme, colorOptions?: EasyViewerColorOptions) {
     const colorParams = colorThemeParams(color, colorOptions);
     const update = plugin.build();
-    for (const { repr } of ligandReprs(plugin, type)) {
-        update.to(repr.cell).update(old => { old.colorTheme = { name: color, params: colorParams } as any; });
+    for (const c of getLigandComponents(plugin)) {
+        for (const repr of c.representations) {
+            if ((repr.cell.transform.params as any)?.type?.name !== type) continue;
+            update.to(repr.cell).update(old => {
+                old.colorTheme = createStructureColorThemeParams(
+                    plugin, c.structure.cell.obj?.data, (old as any).type?.name, color, colorParams
+                ) as any;
+            });
+        }
     }
     await update.commit({ canUndo: 'Ligand Color' });
 }
@@ -404,7 +435,7 @@ async function addChainPresentationFor(plugin: PluginContext, structure: ReturnT
         const isTube = layer.type === 'backbone';
         const reprType: any = isTube ? 'putty' : layer.type;
         const reprTypeParams = isTube
-            ? { ...(layer.alpha !== undefined ? { alpha: layer.alpha } : {}), visuals: ['polymer-tube'], sizeFactor: (layer.size ?? 0.08) * 2 }
+            ? { ...(layer.alpha !== undefined ? { alpha: layer.alpha } : {}), visuals: ['polymer-tube'], sizeFactor: tubeSizeFactor(layer.size ?? 0.08, structure.cell.obj?.data?.boundary?.sphere?.radius ?? TubeReferenceRadius) }
             : typeParams;
 
         // 新建表示时套用当前全局外观（平光/材质），否则高反光下新建的表示会回落到默认哑光
@@ -414,6 +445,7 @@ async function addChainPresentationFor(plugin: PluginContext, structure: ReturnT
             type: reprType,
             color,
             colorParams: colorThemeParams(color, layer.colorOptions),
+            ...(isTube ? { sizeTheme: { name: 'uniform', params: { value: 1 } } } : {}),
             typeParams: { ...(reprTypeParams || {}), ...styleParams },
         }, { tag: `qb-chain-repr-${pres.chain}-${layer.type}` });
 
@@ -487,7 +519,11 @@ export async function updateLayerColor(plugin: PluginContext, chain: string, typ
         for (const c of s.components) {
             for (const r of c.representations) {
                 if ((r.cell.transform.tags ?? []).includes(tag)) {
-                    update.to(r.cell).update(old => { old.colorTheme = { name: color, params: colorParams } as any; });
+                    update.to(r.cell).update(old => {
+                        old.colorTheme = createStructureColorThemeParams(
+                            plugin, c.structure.cell.obj?.data, (old as any).type?.name, color, colorParams
+                        ) as any;
+                    });
                 }
             }
         }
@@ -513,6 +549,29 @@ export async function updateLayerAlpha(plugin: PluginContext, chain: string, typ
         }
     }
     await update.commit({ canUndo: 'Layer Alpha' });
+}
+
+/** 只更新 Tube 的粗细，不重建几何。Tube 在 Mol* 中对应 putty 表示。 */
+export async function updateLayerSize(plugin: PluginContext, chain: string, type: EasyRepresentationType, size: number) {
+    if (type !== 'backbone') return;
+    const update = plugin.build();
+    for (const s of getStructures(plugin)) {
+        const factor = tubeSizeFactor(size, s.cell.obj?.data?.boundary?.sphere?.radius ?? TubeReferenceRadius);
+        for (const c of s.components) {
+            for (const r of c.representations) {
+                if ((r.cell.transform.tags ?? []).includes(`qb-chain-repr-${chain}-${type}`)) {
+                    update.to(r.cell).update(old => {
+                        const p = old as any;
+                        if (p.type?.name !== 'putty') return;
+                        p.sizeTheme = { name: 'uniform', params: { value: 1 } };
+                        if (!p.type.params) p.type.params = {};
+                        p.type.params.sizeFactor = factor;
+                    });
+                }
+            }
+        }
+    }
+    await update.commit({ canUndo: 'Layer Size' });
 }
 
 /** 显隐某一层（用官方 toggleVisibility，走同一套可见性逻辑） */

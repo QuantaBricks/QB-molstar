@@ -13,6 +13,7 @@ export type EasyColorTheme =
     | 'sequence-id'
     | 'secondary-structure'
     | 'hydrophobicity'
+    | 'residue-charge'
     | 'molecule-type'
     | 'residue-name'
     | 'uniform';

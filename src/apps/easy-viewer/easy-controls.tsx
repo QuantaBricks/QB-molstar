@@ -41,6 +41,7 @@ const ChainColors: EasyColorTheme[] = [
     'sequence-id',
     'element-symbol',
     'hydrophobicity',
+    'residue-charge',
     'secondary-structure',
     'uniform',
 ];
@@ -868,8 +869,17 @@ export class EasyControls extends PluginUIComponent<{}, {
             const layers = Actions.getLayers(chainPres[c] ?? { chain: c, layers: [] }).map(l => l.type === type ? { ...l, size } : l);
             chainPres[c] = { ...chainPres[c], chain: c, layers };
         }
+        const wasActive = this.state.perChainActive;
         this.setState({ chainPres, perChainActive: true });
-        this.run(() => Actions.setChainPresentations(this.plugin, Object.values(chainPres)));
+        if (!wasActive) {
+            // 首次切换到逐链模式时仍需创建逐链表示。
+            this.run(() => Actions.setChainPresentations(this.plugin, Object.values(chainPres)));
+        } else {
+            // Tube 粗细只改 putty 的 sizeFactor，避免拖动时删除/重建整套链组件。
+            this.run(async () => {
+                for (const c of this.targetChains()) await Actions.updateLayerSize(this.plugin, c, type, size);
+            });
+        }
     }
 
     private setLayerAlphaDebounced = debounce((type: EasyRepresentationType, alpha: number) => {
@@ -998,6 +1008,7 @@ export class EasyControls extends PluginUIComponent<{}, {
                         if (layers.length === 0) return <div style={{ marginTop: 4 }}><small style={{ color: '#888' }}>{I18n.t('noRepr')}</small></div>;
                         return layers.map((layer, i) => {
                             const color = layer.color ?? 'chain-id';
+                            const tubeSize = layer.size ?? this.targetChains().map(c => Actions.getTubeSize(p, c)).find(v => v !== undefined) ?? 0.08;
                             const collapseKey = 'poly:' + layer.type;
                             const collapsed = !!this.state.collapsed[collapseKey];
                             return <div key={layer.type} style={layerBoxStyle}>
@@ -1047,10 +1058,10 @@ export class EasyControls extends PluginUIComponent<{}, {
                                     </div>
                                     {layer.type === 'backbone' && <div style={{ ...rowStyle, marginTop: 4, flexWrap: 'nowrap' }}>
                                         <small style={{ minWidth: 32 }}>Size</small>
-                                        <input type="range" min={1} max={10} step={0.1} value={(layer.size ?? 0.08) * 100}
+                                        <input type="range" min={1} max={10} step={0.1} value={tubeSize * 100}
                                             style={{ flex: 1 }}
                                             onChange={e => this.setLayerSize(layer.type, parseFloat(e.target.value) / 100)} />
-                                        <span style={numStyle}>{((layer.size ?? 0.08) * 100).toFixed(1)}</span>
+                                        <span style={numStyle}>{(tubeSize * 100).toFixed(1)}</span>
                                     </div>}
                                 </>}
                             </div>;
