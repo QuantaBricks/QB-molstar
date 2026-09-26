@@ -21,7 +21,7 @@ import { ButtonsType, ModifiersKeys } from '../../mol-util/input/input-observer'
 import { DefaultTrackballBindings } from '../../mol-canvas3d/controls/trackball';
 import { StructureFocusRepresentation } from '../../mol-plugin/behavior/dynamic/selection/structure-focus-representation';
 import { EasyDefaultPreset } from './easy-default-preset';
-import { EasyControls, EasyViewport, EasyViewportControls } from './easy-controls';
+import { EasyViewport } from './easy-controls';
 import * as Actions from './easy-actions';
 import { applyDefaultColors } from './palettes';
 import { ChainPresentation, EasyViewerColorOptions, EasyViewerInputs, PharmacophoreFeatureType, PharmacophorePoint, Pocket } from './types';
@@ -186,8 +186,8 @@ export class EasyViewer extends Viewer {
 
         const merged: Partial<ViewerOptions> = {
             layoutIsExpanded: false,
-            layoutShowControls: true,
-            layoutShowLeftPanel: true,
+            layoutShowControls: false,
+            layoutShowLeftPanel: false,
             layoutShowLog: false,
             layoutShowSequence: false,
             collapseLeftPanel: false,
@@ -199,7 +199,7 @@ export class EasyViewer extends Viewer {
             ...spec.components,
             controls: {
                 ...spec.components?.controls,
-                left: EasyControls,
+                left: undefined,
                 top: 'none',
                 right: 'none',
                 bottom: 'none',
@@ -207,7 +207,7 @@ export class EasyViewer extends Viewer {
             viewport: {
                 ...spec.components?.viewport,
                 view: EasyViewport,
-                controls: EasyViewportControls,
+                controls: undefined,
             },
         };
 
