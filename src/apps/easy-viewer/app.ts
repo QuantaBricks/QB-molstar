@@ -199,7 +199,7 @@ export class EasyViewer extends Viewer {
             ...spec.components,
             controls: {
                 ...spec.components?.controls,
-                left: merged.easyControls === false ? 'none' : EasyControls,
+                left: EasyControls,
                 top: 'none',
                 right: 'none',
                 bottom: 'none',
@@ -266,8 +266,8 @@ export class EasyViewer extends Viewer {
         // 内置截图面板的复制/下载也临时提升表面质量
         Actions.wrapScreenshotQuality(plugin);
 
-        // 首次加载默认关闭简易面板（用左侧 Setting 按钮打开）
-        Actions.setPanelVisible(plugin, false);
+        // 首次加载默认关闭简易面板（用视口 Setting 按钮打开）
+        Actions.setPanelVisible(plugin, options.easyPanelVisible ?? DefaultViewerOptions.easyPanelVisible);
 
         // 悬停信息精简：蛋白质名 + 链 + 残基序号
         Actions.setupLociLabels(plugin);
