@@ -26,6 +26,8 @@ import * as Actions from './easy-actions';
 import { applyDefaultColors } from './palettes';
 import { ChainPresentation, EasyViewerColorOptions, EasyViewerInputs, PharmacophoreFeatureType, PharmacophorePoint, Pocket } from './types';
 
+const EmptyViewportControls = () => null;
+
 export type { BaseStyle, EasyColorTheme, EasyStyle, HydrogenMode } from './easy-actions';
 export type { ChainPresentation, EasyRepresentationType, EasyViewerColorOptions, EasyViewerInputs, PharmacophorePoint, Pocket } from './types';
 
@@ -207,7 +209,7 @@ export class EasyViewer extends Viewer {
             viewport: {
                 ...spec.components?.viewport,
                 view: EasyViewport,
-                controls: EasyViewportControls,
+                controls: options.easyViewportControls === false ? EmptyViewportControls : EasyViewportControls,
             },
         };
 

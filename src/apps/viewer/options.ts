@@ -32,6 +32,8 @@ export const DefaultViewerOptions = {
     layoutShowLeftPanel: true,
     // EasyViewer's settings panel is collapsed by default and can be opened per instance.
     easyPanelVisible: false,
+    // EasyViewer viewport buttons remain enabled by default and can be omitted by hosts.
+    easyViewportControls: true,
     collapseLeftPanel: false,
     collapseRightPanel: false,
     disableAntialiasing: PluginConfig.General.DisableAntialiasing.defaultValue,
