@@ -25,9 +25,11 @@ import { Color } from '../../mol-util/color';
 import { ParamDefinition as PD } from '../../mol-util/param-definition';
 import { OutlineParams } from '../../mol-canvas3d/passes/outline';
 import { ShadowParams } from '../../mol-canvas3d/passes/shadow';
-import { Vec3, Mat4 } from '../../mol-math/linear-algebra';
+import { Vec3 } from '../../mol-math/linear-algebra';
+import { SpacegroupCell } from '../../mol-math/geometry';
 import { MolScriptBuilder as MS } from '../../mol-script/language/builder';
-import { StructureElement, StructureProperties, Structure, Unit } from '../../mol-model/structure';
+import { StructureElement, StructureProperties, Structure, StructureSelection } from '../../mol-model/structure';
+import { StructureQueryHelper } from '../../mol-plugin-state/helpers/structure-query';
 import { Loci } from '../../mol-model/loci';
 import { OrderedSet } from '../../mol-data/int/ordered-set';
 import { ChainPalettes, RainbowPalettes } from './palettes';
@@ -402,6 +404,124 @@ export function getLayers(pres: ChainPresentation): RepresentationLayer[] {
     return types.map(type => ({ type, color: pres.color, colorOptions: pres.colorOptions, alpha: pres.alpha, visible: pres.visible }));
 }
 
+const PolymerColorThemes = new Set<EasyColorTheme>([
+    'element-symbol', 'chain-id', 'sequence-id', 'secondary-structure', 'hydrophobicity',
+    'residue-charge', 'molecule-type', 'residue-name', 'uniform',
+]);
+
+function colorListToHex(list: unknown): number[] {
+    if (!Array.isArray(list)) return [];
+    return list.map(c => (typeof c === 'number' ? c : Color(c as Color)));
+}
+
+function matchNamedPalette(palettes: typeof ChainPalettes, colors: number[]): string | undefined {
+    if (colors.length === 0) return undefined;
+    for (const [key, p] of Object.entries(palettes)) {
+        if (p.colors.length === colors.length && p.colors.every((c, i) => c === colors[i])) return key;
+    }
+    return undefined;
+}
+
+function extractChainIdPaletteColors(params: any): number[] {
+    if (!params) return [];
+    return colorListToHex(
+        params.palette?.params?.list?.colors
+        ?? params.palette?.list?.colors
+        ?? params.palette?.colors
+    );
+}
+
+function extractSequencePaletteColors(params: any): number[] {
+    if (!params) return [];
+    return colorListToHex(params.list?.colors ?? params.colors);
+}
+
+function parseColorOptionsFromTheme(theme: EasyColorTheme, params: any): EasyViewerColorOptions | undefined {
+    if (!params) return undefined;
+    if (theme === 'uniform') {
+        const v = params.value;
+        if (v === undefined) return undefined;
+        return { uniformColor: typeof v === 'number' ? v : Color(v as Color) };
+    }
+    if (theme === 'chain-id') {
+        const colors = extractChainIdPaletteColors(params);
+        const key = matchNamedPalette(ChainPalettes, colors);
+        return key ? { chainPalette: key } : undefined;
+    }
+    if (theme === 'sequence-id') {
+        const colors = extractSequencePaletteColors(params);
+        const key = matchNamedPalette(RainbowPalettes, colors);
+        return key ? { rainbowPalette: key } : undefined;
+    }
+    return undefined;
+}
+
+/** Mol* 平光模式下 cartoon 表示会用 cartoon 主题包裹 sequence-id / chain-id */
+function resolveEasyColorFromRepr(colorTheme: { name?: string; params?: any } | undefined): Pick<RepresentationLayer, 'color' | 'colorOptions'> {
+    if (!colorTheme?.name) return { color: 'chain-id' };
+    const name = colorTheme.name;
+    if (name === 'cartoon' && colorTheme.params) {
+        const side = colorTheme.params.sidechain;
+        const main = colorTheme.params.mainchain;
+        if (side?.name === 'sequence-id') {
+            return { color: 'sequence-id', colorOptions: parseColorOptionsFromTheme('sequence-id', side.params) };
+        }
+        if (main?.name === 'sequence-id') {
+            return { color: 'sequence-id', colorOptions: parseColorOptionsFromTheme('sequence-id', main.params) };
+        }
+        if (side?.name === 'uniform') {
+            return { color: 'uniform', colorOptions: parseColorOptionsFromTheme('uniform', side.params) };
+        }
+        if (main?.name === 'uniform') {
+            return { color: 'uniform', colorOptions: parseColorOptionsFromTheme('uniform', main.params) };
+        }
+        if (main?.name === 'chain-id') {
+            return { color: 'chain-id', colorOptions: parseColorOptionsFromTheme('chain-id', main.params) };
+        }
+    }
+    if (PolymerColorThemes.has(name as EasyColorTheme)) {
+        const color = name as EasyColorTheme;
+        return { color, colorOptions: parseColorOptionsFromTheme(color, colorTheme.params) };
+    }
+    return { color: 'chain-id' };
+}
+
+export function mergeChainLayersForDisplay(existing: RepresentationLayer[], fromPlugin: RepresentationLayer[]): RepresentationLayer[] {
+    return fromPlugin.map(lp => {
+        const ex = existing.find(e => e.type === lp.type);
+        return {
+            ...lp,
+            color: lp.color ?? ex?.color ?? 'chain-id',
+            colorOptions: lp.colorOptions ?? ex?.colorOptions,
+            alpha: lp.alpha ?? ex?.alpha,
+            size: lp.size ?? ex?.size,
+            visible: lp.visible ?? ex?.visible,
+        };
+    });
+}
+
+/** 从已挂载的逐链表示读取层配置（切换目标链时让面板与画布一致） */
+export function readChainLayersFromPlugin(plugin: PluginContext, chain: string): RepresentationLayer[] | null {
+    const layers: RepresentationLayer[] = [];
+    const prefix = `qb-chain-repr-${chain}-`;
+    for (const s of getStructures(plugin)) {
+        for (const c of s.components) {
+            for (const r of c.representations) {
+                const tag = (r.cell.transform.tags ?? []).find(t => t.startsWith(prefix));
+                if (!tag) continue;
+                const type = tag.slice(prefix.length) as EasyRepresentationType;
+                const params = (r.cell.transform.params ?? r.cell.obj?.data) as any;
+                if (!params) continue;
+                const { color, colorOptions } = resolveEasyColorFromRepr(params.colorTheme);
+                const alpha = params.type?.params?.alpha;
+                const visible = !r.cell.state.isHidden;
+                layers.push({ type, color, colorOptions, alpha, visible });
+            }
+        }
+    }
+    return layers.length > 0 ? layers : null;
+}
+
 /** 球棍/空间填充/line 即使全局平光也保持立体明暗，否则原子挤在一起分不清 */
 const FlatAtomShadedTypes = new Set(['ball-and-stick', 'spacefill', 'line']);
 
@@ -412,10 +532,15 @@ function currentStyleParams(plugin: PluginContext, reprType?: string) {
     return { ignoreLight, material: opts.materialStyle };
 }
 
-async function addChainPresentationFor(plugin: PluginContext, structure: ReturnType<typeof getStructures>[number], pres: ChainPresentation) {
-    const expr = MS.struct.generator.atomGroups({
-        'chain-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_asym_id(), pres.chain])
+function chainPolymerExpression(chain: string) {
+    return MS.struct.generator.atomGroups({
+        'chain-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.label_asym_id(), chain]),
+        'entity-test': MS.core.rel.eq([MS.struct.atomProperty.macromolecular.entityType(), 'polymer']),
     });
+}
+
+async function addChainPresentationFor(plugin: PluginContext, structure: ReturnType<typeof getStructures>[number], pres: ChainPresentation) {
+    const expr = chainPolymerExpression(pres.chain);
     const comp = await plugin.builders.structure.tryCreateComponentFromExpression(
         structure.cell, expr, `qb-chain-${pres.chain}`, { label: `Chain ${pres.chain}` }
     );
@@ -783,14 +908,36 @@ function firstAssembly(model: any) {
     return { sym, asm, asymIds, maxOperators };
 }
 
-function identityOperatorIndex(sym: any): number {
-    const operators = sym?.spacegroup?.operators;
-    if (operators) {
-        for (let i = 0; i < operators.length; i++) {
-            if (Mat4.isIdentity(operators[i])) return i;
-        }
+/** 晶体对称（非 P1、有效晶胞）时可生成对称相关分子 */
+function hasCrystalSymmetryExpansion(model: any): boolean {
+    const sym = ModelSymmetry.Provider.get(model);
+    if (!sym) return false;
+    if (SpacegroupCell.isZero(sym.spacegroup.cell)) return false;
+    const ops = sym.spacegroup.operators;
+    return !!ops && ops.length > 1;
+}
+
+/** 对称按钮是否真能展开出更多拷贝（如 1GTB）；1AUD 等 AU 已含完整二聚体则 false */
+function modelSupportsSymmetryToggle(model: any): boolean {
+    const info = firstAssembly(model);
+    if (info && info.maxOperators > 1) return true;
+    if (hasCrystalSymmetryExpansion(model)) return true;
+    return false;
+}
+
+function protomerStructureType(): { name: 'model'; params: Record<string, never> } {
+    return { name: 'model', params: {} };
+}
+
+function expandedStructureType(model: any): { name: string; params: any } | undefined {
+    const info = firstAssembly(model);
+    if (info && info.maxOperators > 1) {
+        return { name: 'assembly', params: { id: info.asm.id } };
     }
-    return 0;
+    if (hasCrystalSymmetryExpansion(model)) {
+        return { name: 'symmetry-mates', params: { radius: 5 } };
+    }
+    return undefined;
 }
 
 function forEachStructureCell(plugin: PluginContext, fn: (ref: string, model: any, params: any) => void) {
@@ -803,49 +950,53 @@ function forEachStructureCell(plugin: PluginContext, fn: (ref: string, model: an
     }
 }
 
+function isSameStructureType(params: any, target: { name: string; params?: any }): boolean {
+    const cur = params?.type;
+    if (!cur || cur.name !== target.name) return false;
+    if (target.name === 'assembly') return cur.params?.id === target.params?.id;
+    if (target.name === 'symmetry-mates') return cur.params?.radius === target.params?.radius;
+    return true;
+}
+
 /**
  * 默认只显示一个 protomer：
  * 用第一个生物组装体的 asym 列表 + 恒等对称操作构建结构（对称蛋白也只保留一份拷贝及其配体/水）。
  */
-export async function useProtomerStructure(plugin: PluginContext) {
+export async function useProtomerStructure(plugin: PluginContext): Promise<boolean> {
     const update = plugin.build();
     let changed = false;
-    forEachStructureCell(plugin, (ref, model, params) => {
-        const info = firstAssembly(model);
-        if (!info || info.asymIds.length === 0) return;
-        const type = {
-            name: 'symmetry-assembly',
-            params: { generators: [{ asymIds: info.asymIds, operators: [{ index: identityOperatorIndex(info.sym), shift: Vec3.zero() }] }] }
-        };
+    forEachStructureCell(plugin, (ref, _model, params) => {
+        const type = protomerStructureType();
+        if (isSameStructureType(params, type)) return;
         update.to(ref).update({ ...params, type });
         changed = true;
     });
     if (changed) await update.commit({ canUndo: 'Use Protomer Structure' });
+    return changed;
 }
 
-/** 是否具有可展开的对称性（含生物组装体或多个聚合物链） */
+/** 是否具有可切换的生物组装体 / 对称性（mmCIF/PDB 中的 assembly 元数据） */
 export function hasSymmetry(plugin: PluginContext): boolean {
     for (const s of getStructures(plugin)) {
         const model = s.cell.obj?.data?.model;
-        if (model && ModelSymmetry.Provider.get(model)?.assemblies.length) return true;
+        if (!model) continue;
+        if (modelSupportsSymmetryToggle(model)) return true;
     }
-    return getAvailableChains(plugin).length > 1;
+    return false;
 }
 
-/** 按对称性展开：组装体含对称操作时展开为完整组装体，否则显示不对称单元的全部链 */
-export async function expandSymmetry(plugin: PluginContext) {
+/** 展开为 PDB/mmCIF 定义的第一个生物组装体（如 1AUD 的 dimeric assembly） */
+export async function expandSymmetry(plugin: PluginContext): Promise<boolean> {
     const update = plugin.build();
     let changed = false;
     forEachStructureCell(plugin, (ref, model, params) => {
-        const info = firstAssembly(model);
-        if (!info) return;
-        const type = info.maxOperators > 1
-            ? { name: 'assembly', params: { id: info.asm.id } }
-            : { name: 'model', params: {} };
+        const type = expandedStructureType(model);
+        if (!type || isSameStructureType(params, type)) return;
         update.to(ref).update({ ...params, type });
         changed = true;
     });
     if (changed) await update.commit({ canUndo: 'Expand Symmetry' });
+    return changed;
 }
 
 let symmetryExpanded = false;
@@ -858,19 +1009,43 @@ export function subscribeSymmetryExpanded(fn: () => void) {
     return () => { symmetryListeners.delete(fn); };
 }
 
+/** 根据当前 StructureFromModel 类型同步 UI 展开状态 */
+export function syncSymmetryExpandedFromStructure(plugin: PluginContext) {
+    let expanded = false;
+    forEachStructureCell(plugin, (_ref, _model, params) => {
+        const n = params?.type?.name;
+        if (n === 'assembly' || n === 'symmetry-mates' || n === 'symmetry') expanded = true;
+    });
+    if (symmetryExpanded === expanded) return;
+    symmetryExpanded = expanded;
+    for (const fn of symmetryListeners) fn();
+}
+
 /** 载入新结构后重置对称展开状态 */
 export function resetSymmetryExpanded() {
-    if (!symmetryExpanded) return;
     symmetryExpanded = false;
     for (const fn of symmetryListeners) fn();
 }
 
-/** 在「单个 protomer」与「对称展开」之间切换 */
-export async function toggleSymmetry(plugin: PluginContext) {
-    if (symmetryExpanded) await useProtomerStructure(plugin);
-    else await expandSymmetry(plugin);
+/** 在「单个 protomer」与「对称展开」之间切换；成功时返回 true */
+export async function toggleSymmetry(plugin: PluginContext): Promise<boolean> {
+    const ok = symmetryExpanded
+        ? await useProtomerStructure(plugin)
+        : await expandSymmetry(plugin);
+    if (!ok) {
+        PluginCommands.Toast.Show(plugin, {
+            title: '对称',
+            message: '此结构没有可展开的对称拷贝（不对称单元已含完整组装体，或空间群为 P1）。可试 1GTB 等对称蛋白。',
+            timeoutMs: 4000
+        });
+        syncSymmetryExpandedFromStructure(plugin);
+        return false;
+    }
     symmetryExpanded = !symmetryExpanded;
     for (const fn of symmetryListeners) fn();
+    await reapplyStyle(plugin);
+    PluginCommands.Camera.Reset(plugin, {});
+    return true;
 }
 
 //
@@ -926,22 +1101,18 @@ export function isPanelVisible(plugin: PluginContext) {
     return plugin.layout.state.regionState.left !== 'hidden';
 }
 
-/** 某条链的 loci */
+/** 某条聚合物链的 loci（与 chain 组件相同的 MolScript：label_asym_id + entity polymer） */
 function getChainLoci(structure: Structure, chain: string): StructureElement.Loci | undefined {
-    const elements: any[] = [];
-    for (const unit of structure.units) {
-        if (!Unit.isAtomic(unit)) continue;
-        const { label_asym_id } = unit.model.atomicHierarchy.chains;
-        const chainSegments = unit.model.atomicHierarchy.chainAtomSegments;
-        const indices: number[] = [];
-        for (let i = 0; i < unit.elements.length; i++) {
-            const a = unit.elements[i];
-            if (label_asym_id.value(chainSegments.index[a]) === chain) indices.push(a);
-        }
-        if (indices.length > 0) elements.push({ unit, indices: OrderedSet.ofSortedArray(indices) });
-    }
-    if (elements.length === 0) return undefined;
-    return StructureElement.Loci(structure, elements);
+    const { selection } = StructureQueryHelper.createAndRun(structure, chainPolymerExpression(chain));
+    if (StructureSelection.isEmpty(selection)) return undefined;
+    return StructureSelection.toLociWithSourceUnits(selection);
+}
+
+/** 链目标高亮用的结构：多结构场景固定 hierarchy[0]（蛋白 scaffold），与 Orchestra 约定一致 */
+function structureForChainHighlight(plugin: PluginContext): Structure | undefined {
+    const all = getAllStructures(plugin);
+    const entry = all.length > 1 ? all[0] : getStructures(plugin)[0];
+    return entry?.cell.obj?.data;
 }
 
 /** 在 canvas 上高亮某条链（chain 为 null 则清除） */
@@ -949,9 +1120,9 @@ export function highlightChain(plugin: PluginContext, chain: string | null) {
     const selects = plugin.managers.interactivity.lociSelects;
     selects.deselectAll();
     if (!chain) return;
-    const structure = getStructures(plugin)[0]?.cell.obj?.data;
+    const structure = structureForChainHighlight(plugin);
     const loci = structure ? getChainLoci(structure, chain) : undefined;
-    if (loci) selects.select({ loci });
+    if (loci) selects.select({ loci }, false);
 }
 
 //

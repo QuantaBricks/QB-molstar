@@ -197,6 +197,13 @@ export class EasyViewer extends Viewer {
         };
 
         const spec = createViewerSpec(merged);
+        const panelVisible = options.easyPanelVisible ?? DefaultViewerOptions.easyPanelVisible;
+        if (!panelVisible && spec.layout?.initial?.regionState) {
+            spec.layout.initial.regionState = {
+                ...spec.layout.initial.regionState,
+                left: 'hidden',
+            };
+        }
         spec.components = {
             ...spec.components,
             controls: {
@@ -269,7 +276,7 @@ export class EasyViewer extends Viewer {
         Actions.wrapScreenshotQuality(plugin);
 
         // 首次加载默认关闭简易面板（用视口 Setting 按钮打开）
-        Actions.setPanelVisible(plugin, options.easyPanelVisible ?? DefaultViewerOptions.easyPanelVisible);
+        await Actions.setPanelVisible(plugin, panelVisible);
 
         // 悬停信息精简：蛋白质名 + 链 + 残基序号
         Actions.setupLociLabels(plugin);

@@ -763,7 +763,7 @@ function initialLocale(): Locale {
         const saved = localStorage.getItem(STORAGE_KEY) as Locale | null;
         if (saved && Dicts[saved]) return saved;
     } catch { /* ignore */ }
-    return 'zh';
+    return 'en';
 }
 
 let currentLocale: Locale = initialLocale();

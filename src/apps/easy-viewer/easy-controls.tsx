@@ -103,6 +103,33 @@ const fileNameStyle: React.CSSProperties = { flex: 1, overflow: 'hidden', textOv
 const removeButtonStyle: React.CSSProperties = { display: 'flex', alignItems: 'center', justifyContent: 'center', width: 28, height: 28, border: 'none', background: 'transparent', cursor: 'pointer', color: '#9ca3af', borderRadius: 6, padding: 0 };
 const collapseButtonStyle: React.CSSProperties = { border: 'none', background: 'transparent', cursor: 'pointer', color: '#6b7280', fontSize: 16, lineHeight: 1, padding: '0 2px' };
 
+const EASY_MODEL_TRAJ_BAR_STYLE = `
+.easy-model-traj-bar {
+    position: absolute;
+    left: 50%;
+    top: 8px;
+    transform: translateX(-50%);
+    z-index: 35;
+    pointer-events: none;
+    max-width: calc(100% - 120px);
+}
+.easy-model-traj-bar .msp-traj-controls {
+    float: none !important;
+    margin: 0 !important;
+    pointer-events: auto;
+    display: inline-flex !important;
+    align-items: center;
+    border-radius: 8px;
+    background: rgba(255, 255, 255, 0.94) !important;
+    border: 1px solid #d1d5db;
+    box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+    color: #374151;
+}
+.easy-model-traj-bar .msp-traj-controls > span {
+    color: #374151 !important;
+}
+`;
+
 /** 视口：与默认视口一致，但没有多帧（trajectory）时隐藏动画控件 */
 export function EasyViewport() {
     const plugin = React.useContext(PluginReactContext);
@@ -130,7 +157,6 @@ export function EasyViewport() {
         <Viewport />
         <div className='msp-viewport-top-left-controls'>
             {multiFrame && <AnimationViewportControls />}
-            <TrajectoryViewportControls />
             <StateSnapshotViewportControls />
             <SnapshotDescription />
         </div>
@@ -350,6 +376,10 @@ export function EasyViewportControls() {
         <button className={'easy-vp-btn' + (active ? ' easy-vp-btn-active' : '')} title={title} onClick={onClick}>{svg}</button>;
 
     return <>
+        <style>{EASY_MODEL_TRAJ_BAR_STYLE}</style>
+        <div className='easy-model-traj-bar'>
+            <TrajectoryViewportControls />
+        </div>
         {!panelVisible && <div className='easy-viewport-controls' style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
                 {button(<FileSvg />, I18n.t('openFile'), onOpenClick)}
@@ -375,7 +405,7 @@ export function EasyViewportControls() {
                 {hasSymm && <button
                     className={'easy-vp-btn easy-vp-btn-text' + (symmExpanded ? ' easy-vp-btn-active' : '')}
                     title={I18n.t('symmetry')}
-                    onClick={() => Actions.toggleSymmetry(plugin)}>{I18n.t('symmetry')}</button>}
+                    onClick={() => { void Actions.toggleSymmetry(plugin).then(ok => { if (ok) setHasSymm(Actions.hasSymmetry(plugin)); }); }}>{I18n.t('symmetry')}</button>}
                 {hasH && <div style={{ position: 'relative' }}>
                     <button className={'easy-vp-btn easy-vp-btn-text' + (hMode !== 'none' ? ' easy-vp-btn-active' : '')}
                         title={I18n.t('polarHydrogen')}
@@ -541,7 +571,9 @@ export class EasyControls extends PluginUIComponent<{}, {
         this.subscribe({ subscribe: (fn: any) => Actions.subscribeHighlightedResidues(fn) } as any, () => this.forceUpdate());
         this.targetedSub = Actions.subscribeTargetedChain(() => {
             const target = Actions.getTargetedChain() ?? 'all';
-            if (this.state.chainTarget !== target) this.setState({ chainTarget: target });
+            if (this.state.chainTarget !== target) {
+                this.setState({ chainTarget: target, ...this.paletteStateForTarget(target) });
+            }
         });
         // 画布上选中/聚焦某条链时，Polymer 目标自动切到该链（不整链高亮，保留用户点选的残基）
         const switchToLoci = (loci: any) => {
@@ -550,7 +582,9 @@ export class EasyControls extends PluginUIComponent<{}, {
             if (!loc || StructureProperties.entity.type(loc) !== 'polymer') return;
             const chain = StructureProperties.chain.label_asym_id(loc);
             if (chain && chain !== this.state.chainTarget && this.state.chains.indexOf(chain) >= 0) {
-                this.setState({ chainTarget: chain });
+                const chainPres = { ...this.state.chainPres };
+                this.syncChainPresFromPlugin(chainPres, chain);
+                this.setState({ chainTarget: chain, chainPres, ...this.paletteStateForTarget(chain) });
                 Actions.setTargetedChain(this.plugin, chain, false);
             }
         };
@@ -784,14 +818,87 @@ export class EasyControls extends PluginUIComponent<{}, {
         };
     }
 
+    /** 某链某层的配色选项（优先 layer 内保存的值，避免切换目标链后面板仍显示上一链的全局 palette） */
+    private layerColorOptions(chain: string, type: EasyRepresentationType, patch?: Partial<EasyViewerColorOptions>): EasyViewerColorOptions {
+        const layer = Actions.getLayers(this.state.chainPres[chain] ?? { chain, layers: [] }).find(l => l.type === type);
+        const fromLayer = layer?.colorOptions;
+        return {
+            chainPalette: patch?.chainPalette ?? fromLayer?.chainPalette ?? this.state.chainPalette,
+            rainbowPalette: patch?.rainbowPalette ?? fromLayer?.rainbowPalette ?? this.state.rainbowPalette,
+            uniformColor: patch?.uniformColor ?? fromLayer?.uniformColor ?? this.state.uniformColor,
+        };
+    }
+
+    /** 切换 Polymer 目标链时，同步全局 palette 状态（供其它控件默认值；面板渲染以 layer.colorOptions 为准） */
+    private paletteStateForTarget(target: string, chainPres = this.state.chainPres): Partial<Pick<EasyControls['state'], 'chainPalette' | 'rainbowPalette' | 'uniformColor'>> {
+        const chains = target === 'all' ? this.state.chains : [target];
+        const chain = chains[0];
+        if (!chain) return {};
+        const fromPlugin = target !== 'all' ? Actions.readChainLayersFromPlugin(this.plugin, chain) : null;
+        const layer = (fromPlugin ?? Actions.getLayers(chainPres[chain] ?? { chain, layers: [] }))[0];
+        if (!layer) return {};
+        const o = layer.colorOptions;
+        return {
+            chainPalette: o?.chainPalette ?? this.state.chainPalette,
+            rainbowPalette: o?.rainbowPalette ?? this.state.rainbowPalette,
+            uniformColor: o?.uniformColor ?? this.state.uniformColor,
+        };
+    }
+
+    private cloneLayers(layers: RepresentationLayer[]): RepresentationLayer[] {
+        return layers.map(l => ({
+            ...l,
+            colorOptions: l.colorOptions ? { ...l.colorOptions } : undefined,
+        }));
+    }
+
+    private layerConfigKey(layer: RepresentationLayer): string {
+        return `${layer.type}:${layer.color ?? ''}:${JSON.stringify(layer.colorOptions ?? null)}:${layer.alpha ?? ''}:${layer.visible ?? ''}`;
+    }
+
+    private syncChainPresFromPlugin(chainPres: { [chain: string]: ChainPresentation }, chain: string) {
+        const fromPlugin = Actions.readChainLayersFromPlugin(this.plugin, chain);
+        if (!fromPlugin) return;
+        const existing = Actions.getLayers(chainPres[chain] ?? { chain, layers: [] });
+        chainPres[chain] = {
+            ...chainPres[chain],
+            chain,
+            layers: Actions.mergeChainLayersForDisplay(existing, fromPlugin),
+        };
+    }
+
+    private setChainTarget(target: string) {
+        const chainPres = { ...this.state.chainPres };
+        if (target !== 'all') this.syncChainPresFromPlugin(chainPres, target);
+        this.setState({
+            chainTarget: target,
+            chainPres,
+            ...this.paletteStateForTarget(target, chainPres),
+        });
+        Actions.setTargetedChain(this.plugin, target === 'all' ? null : target);
+    }
+
     /** 目标各链的层集合一致则返回，否则 null（混合） */
     private targetLayers(): RepresentationLayer[] | null {
         const chains = this.targetChains();
         if (chains.length === 0) return [];
         const lists = chains.map(c => Actions.getLayers(this.state.chainPres[c] ?? { chain: c, layers: [] }));
         const first = lists[0];
-        const same = lists.every(l => l.length === first.length && l.every((v, i) => v.type === first[i].type));
-        return same ? first : null;
+        const same = lists.every(l => l.length === first.length
+            && l.every((v, i) => this.layerConfigKey(v) === this.layerConfigKey(first[i])));
+        return same ? this.cloneLayers(first) : null;
+    }
+
+    /** 当前 Polymer 面板应展示的层（单链时以画布为准，并与 chainPres 合并 palette） */
+    private displayLayers(): RepresentationLayer[] | null {
+        const target = this.state.chainTarget;
+        if (target !== 'all') {
+            const fromState = Actions.getLayers(this.state.chainPres[target] ?? { chain: target, layers: [] });
+            const fromPlugin = Actions.readChainLayersFromPlugin(this.plugin, target);
+            if (fromPlugin) return this.cloneLayers(Actions.mergeChainLayersForDisplay(fromState, fromPlugin));
+            return this.cloneLayers(fromState);
+        }
+        return this.targetLayers();
     }
 
     private commitLayers(mutate: (chain: string, layers: RepresentationLayer[]) => RepresentationLayer[]) {
@@ -812,22 +919,38 @@ export class EasyControls extends PluginUIComponent<{}, {
         this.commitLayers((_c, layers) => layers.filter(l => l.type !== type));
     }
 
-    private setLayerColor(type: EasyRepresentationType, color: EasyColorTheme, uniformColor?: number) {
-        const colorOptions: EasyViewerColorOptions = { ...this.colorOptions(), ...(uniformColor !== undefined ? { uniformColor } : {}) };
+    private setLayerColor(type: EasyRepresentationType, color: EasyColorTheme, uniformColor?: number, palettePatch?: Partial<EasyViewerColorOptions>) {
         const chainPres = { ...this.state.chainPres };
         for (const c of this.targetChains()) {
+            const colorOptions = this.layerColorOptions(c, type, {
+                ...palettePatch,
+                ...(uniformColor !== undefined ? { uniformColor } : {}),
+            });
             const layers = Actions.getLayers(chainPres[c] ?? { chain: c, layers: [] }).map(l => l.type === type ? { ...l, color, colorOptions } : l);
             chainPres[c] = { ...chainPres[c], chain: c, layers };
         }
         const wasActive = this.state.perChainActive;
-        this.setState({ chainPres, perChainActive: true });
+        const paletteSync = this.paletteStateForTarget(this.state.chainTarget);
+        this.setState({ chainPres, perChainActive: true, ...paletteSync });
         if (!wasActive) {
             // 首次：先构建逐链表示，再谈改颜色
             this.run(() => Actions.setChainPresentations(this.plugin, Object.values(chainPres)));
         } else {
             // 颜色原地更新，不重算几何
             this.run(async () => {
-                for (const c of this.targetChains()) await Actions.updateLayerColor(this.plugin, c, type, color, colorOptions);
+                for (const c of this.targetChains()) {
+                    const opts = this.layerColorOptions(c, type, {
+                        ...palettePatch,
+                        ...(uniformColor !== undefined ? { uniformColor } : {}),
+                    });
+                    await Actions.updateLayerColor(this.plugin, c, type, color, opts);
+                }
+                const target = this.state.chainTarget;
+                if (target !== 'all') {
+                    const synced = { ...this.state.chainPres };
+                    this.syncChainPresFromPlugin(synced, target);
+                    this.setState({ chainPres: synced, ...this.paletteStateForTarget(target, synced) });
+                }
             });
         }
     }
@@ -989,7 +1112,7 @@ export class EasyControls extends PluginUIComponent<{}, {
                     <div style={rowStyle}>
                         <small style={{ minWidth: 32 }}>{I18n.t('target')}</small>
                         <select style={{ ...selectStyle, marginTop: 0, flex: 1 }} value={this.state.chainTarget}
-                            onChange={e => { const v = e.target.value; this.setState({ chainTarget: v }); Actions.setTargetedChain(p, v === 'all' ? null : v); }}>
+                            onChange={e => this.setChainTarget(e.target.value)}>
                             <option value="all">{I18n.t('allChains')}</option>
                             {this.state.chains.map(c => <option key={c} value={c}>{this.chainLabel(c)}</option>)}
                         </select>
@@ -1003,15 +1126,20 @@ export class EasyControls extends PluginUIComponent<{}, {
                         </select>
                     </div>
                     {(() => {
-                        const layers = this.targetLayers();
+                        const layers = this.displayLayers();
                         if (layers === null) return <div style={{ marginTop: 4 }}><small style={{ color: '#888' }}>{I18n.t('chainsDiffer')}</small></div>;
                         if (layers.length === 0) return <div style={{ marginTop: 4 }}><small style={{ color: '#888' }}>{I18n.t('noRepr')}</small></div>;
+                        const displayChain = this.state.chainTarget === 'all' ? this.state.chains[0] : this.state.chainTarget;
                         return layers.map((layer, i) => {
                             const color = layer.color ?? 'chain-id';
-                            const tubeSize = layer.size ?? this.targetChains().map(c => Actions.getTubeSize(p, c)).find(v => v !== undefined) ?? 0.08;
-                            const collapseKey = 'poly:' + layer.type;
+                            const layerOpts = layer.colorOptions;
+                            const chainPalette = layerOpts?.chainPalette ?? 'default';
+                            const rainbowPalette = layerOpts?.rainbowPalette ?? 'blue';
+                            const uniformColor = layerOpts?.uniformColor ?? this.state.uniformColor;
+                            const tubeSize = layer.size ?? (displayChain ? Actions.getTubeSize(p, displayChain) : undefined) ?? 0.08;
+                            const collapseKey = 'poly:' + this.state.chainTarget + ':' + layer.type;
                             const collapsed = !!this.state.collapsed[collapseKey];
-                            return <div key={layer.type} style={layerBoxStyle}>
+                            return <div key={this.state.chainTarget + ':' + layer.type} style={layerBoxStyle}>
                                 <div style={rowStyle}>
                                     <button title='收起/展开' onClick={() => this.toggleCollapse(collapseKey)} style={collapseButtonStyle}>{collapsed ? '▸' : '▾'}</button>
                                     <span style={{ fontWeight: 700, color: '#9ca3af', fontSize: 12 }}>{i + 1}</span>
@@ -1029,24 +1157,24 @@ export class EasyControls extends PluginUIComponent<{}, {
                                             {ChainColors.map(v => <option key={v} value={v}>{I18n.themeName(v)}</option>)}
                                         </select>
                                         {color === 'chain-id' &&
-                                            <select style={{ ...selectStyle, marginTop: 0, flex: 1 }} value={this.state.chainPalette}
-                                                onChange={e => this.setState({ chainPalette: e.target.value }, () => this.setLayerColor(layer.type, 'chain-id'))}>
+                                            <select style={{ ...selectStyle, marginTop: 0, flex: 1 }} value={chainPalette}
+                                                onChange={e => this.setLayerColor(layer.type, 'chain-id', undefined, { chainPalette: e.target.value })}>
                                                 {Object.entries(ChainPalettes).map(([key, v]) => <option key={key} value={key}>{I18n.paletteName(key, v.label)}</option>)}
                                             </select>}
                                         {color === 'sequence-id' &&
-                                            <select style={{ ...selectStyle, marginTop: 0, flex: 1 }} value={this.state.rainbowPalette}
-                                                onChange={e => this.setState({ rainbowPalette: e.target.value }, () => this.setLayerColor(layer.type, 'sequence-id'))}>
+                                            <select style={{ ...selectStyle, marginTop: 0, flex: 1 }} value={rainbowPalette}
+                                                onChange={e => this.setLayerColor(layer.type, 'sequence-id', undefined, { rainbowPalette: e.target.value })}>
                                                 {Object.entries(RainbowPalettes).map(([key, v]) => <option key={key} value={key}>{I18n.paletteName(key, v.label)}</option>)}
                                             </select>}
                                     </div>
                                     {color === 'uniform' &&
                                         <div style={{ ...rowStyle, marginTop: 4 }}>
-                                            <input type="color" value={'#' + this.state.uniformColor.toString(16).padStart(6, '0')}
+                                            <input type="color" value={'#' + uniformColor.toString(16).padStart(6, '0')}
                                                 onChange={e => this.setLayerUniform(layer.type, parseInt(e.target.value.slice(1), 16))}
                                                 style={{ ...colorInputStyle, width: 30, height: 24, borderRadius: 4 }} />
                                             {UniformSwatches.map(c =>
                                                 <button key={c} title={'#' + c.toString(16).padStart(6, '0')}
-                                                    style={{ ...swatchStyle(this.state.uniformColor === c), background: '#' + c.toString(16).padStart(6, '0') }}
+                                                    style={{ ...swatchStyle(uniformColor === c), background: '#' + c.toString(16).padStart(6, '0') }}
                                                     onClick={() => this.setLayerUniform(layer.type, c)} />)}
                                         </div>}
                                     <div style={{ ...rowStyle, marginTop: 4, flexWrap: 'nowrap' }}>
