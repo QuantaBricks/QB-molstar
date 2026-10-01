@@ -1202,13 +1202,26 @@ export function setupLociLabels(plugin: PluginContext) {
                     const structure = l.data.structure;
                     const inter = l.data.interactions;
                     const type = Interactions.locationLabel(Interactions.Location(inter, structure, element.unitA, element.indexA, element.unitB, element.indexB));
-                    let dist = '';
                     const fA = inter.unitsFeatures.get(element.unitA.id);
                     const fB = inter.unitsFeatures.get(element.unitB.id);
-                    if (fA && fB) {
+                    const uA = structure.unitMap.get(element.unitA.id);
+                    const uB = structure.unitMap.get(element.unitB.id);
+                    const probe = StructureElement.Location.create(structure);
+                    let involvesWater = false;
+                    if (uA && fA) {
+                        probe.unit = uA;
+                        probe.element = uA.elements[fA.members[fA.offsets[element.indexA]]];
+                        involvesWater = StructureProperties.entity.type(probe) === 'water';
+                    }
+                    if (!involvesWater && uB && fB) {
+                        probe.unit = uB;
+                        probe.element = uB.elements[fB.members[fB.offsets[element.indexB]]];
+                        involvesWater = StructureProperties.entity.type(probe) === 'water';
+                    }
+                    if (involvesWater) return type;
+                    let dist = '';
+                    if (fA && fB && uA && uB) {
                         const pA = Vec3(), pB = Vec3();
-                        const uA = structure.unitMap.get(element.unitA.id);
-                        const uB = structure.unitMap.get(element.unitB.id);
                         uA.conformation.position(uA.elements[fA.members[fA.offsets[element.indexA]]], pA);
                         uB.conformation.position(uB.elements[fB.members[fB.offsets[element.indexB]]], pB);
                         dist = `  ${Vec3.distance(pA, pB).toFixed(2)} Å`;
@@ -1223,7 +1236,12 @@ export function setupLociLabels(plugin: PluginContext) {
             if (!first) return undefined;
 
             const loc = StructureElement.Location.create(loci.structure, first.unit, first.unit.elements[OrderedSet.start(first.indices)]);
-            return `Chain ${StructureProperties.chain.label_asym_id(loc)} &nbsp; ${StructureProperties.atom.label_comp_id(loc)} ${StructureProperties.residue.auth_seq_id(loc)}`;
+            const comp = StructureProperties.atom.label_comp_id(loc);
+            const chain = StructureProperties.chain.label_asym_id(loc);
+            if (StructureProperties.entity.type(loc) === 'water') {
+                return `Chain ${chain} &nbsp; ${comp}`;
+            }
+            return `Chain ${chain} &nbsp; ${comp} ${StructureProperties.residue.auth_seq_id(loc)}`;
         },
     });
 }

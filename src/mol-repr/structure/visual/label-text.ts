@@ -140,8 +140,8 @@ function createResidueText(ctx: VisualContext, structure: Structure, theme: Them
             const { center, radius } = boundaryHelper.getSphere();
             const authSeqId = auth_seq_id(l);
             const compId = label_comp_id(l);
-
-            const text = `${compId} ${authSeqId}`;
+            const isWater = StructureProperties.entity.type(l) === 'water';
+            const text = isWater ? `${compId}` : `${compId} ${authSeqId}`;
             builder.add(text, center[0], center[1], center[2], radius, residueScale, groupOffset + start);
         }
     }

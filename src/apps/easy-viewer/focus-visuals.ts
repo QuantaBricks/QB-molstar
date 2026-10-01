@@ -357,18 +357,22 @@ function setHighlightedResidues(list: HighlightedResidue[]) {
 function residuesOf(structure: any): HighlightedResidue[] {
     const result: HighlightedResidue[] = [];
     const seen = new Set<string>();
+    const loc = StructureElement.Location.create(structure);
     for (const unit of structure.units) {
         const { residues, chains, chainAtomSegments, residueAtomSegments } = unit.model.atomicHierarchy;
+        loc.unit = unit;
         for (let i = 0; i < unit.elements.length; i++) {
             const e = unit.elements[i];
+            loc.element = e;
             const r = residueAtomSegments.index[e];
             const chain = chains.label_asym_id.value(chainAtomSegments.index[e]);
             const comp = residues.label_comp_id.value(r);
-            const seq = residues.auth_seq_id.value(r);
-            const id = `${chain}:${comp}:${seq}`;
+            const isWater = StructureProperties.entity.type(loc) === 'water';
+            const seq = isWater ? '' : String(residues.auth_seq_id.value(r));
+            const id = isWater ? `${chain}:${comp}:w:${unit.id}` : `${chain}:${comp}:${seq}`;
             if (seen.has(id)) continue;
             seen.add(id);
-            result.push({ chain, comp, seq: String(seq) });
+            result.push({ chain, comp, seq });
         }
     }
     return result;

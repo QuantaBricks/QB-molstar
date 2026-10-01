@@ -1257,7 +1257,7 @@ export class EasyControls extends PluginUIComponent<{}, {
                         <div style={{ maxHeight: 150, overflowY: 'auto', marginTop: 2, border: '1px solid #e6e8ec', borderRadius: 6, background: '#fff' }}>
                             {residues.map((r, i) => <div key={`${r.chain}:${r.comp}:${r.seq}:${i}`}
                                 style={{ display: 'flex', gap: 6, padding: '2px 6px', fontSize: 13, borderTop: i ? '1px solid #f1f3f5' : 'none' }}>
-                                <span style={{ fontWeight: 600 }}>{r.comp}{r.seq}</span>
+                                <span style={{ fontWeight: 600 }}>{r.seq ? `${r.comp}${r.seq}` : r.comp}</span>
                                 <span style={{ color: '#9aa0a6', marginLeft: 'auto' }}>{r.chain}</span>
                             </div>)}
                         </div>
