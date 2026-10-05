@@ -81,6 +81,8 @@ interface Renderer {
     renderVolume: (group: Scene.Group, camera: ICamera, depthTexture: Texture) => void
     renderWboitTransparent: (group: Scene.Group, camera: ICamera, depthTexture: Texture) => void
     renderDpoitTransparent: (group: Scene.Group, camera: ICamera, depthTexture: Texture, dpoitTextures: { depth: Texture, frontColor: Texture, backColor: Texture }) => void
+    /** 3D 标签：SMAA/后处理之后画到屏幕，避免被抗锯齿糊掉 */
+    renderTextOverlay: (group: Scene.Group, camera: ICamera) => void
 
     setProps: (props: Partial<RendererProps>) => void
     setViewport: (x: number, y: number, width: number, height: number) => void
@@ -601,7 +603,7 @@ namespace Renderer {
             const { renderables } = group;
             for (let i = 0, il = renderables.length; i < il; ++i) {
                 const r = renderables[i];
-                if (checkTransparent(r)) {
+                if (checkTransparent(r) && r.values.dGeometryType.ref.value !== 'text') {
                     renderObject(r, 'depth', Flag.None);
                 }
             }
@@ -765,7 +767,7 @@ namespace Renderer {
             const { renderables } = group;
             for (let i = 0, il = renderables.length; i < il; ++i) {
                 const r = renderables[i];
-                if (checkTransparent(r)) {
+                if (checkTransparent(r) && r.values.dGeometryType.ref.value !== 'text') {
                     if (r.values.uDoubleSided?.ref.value) {
                         // render frontfaces and backfaces separately to avoid artefacts
                         if (r.values.dTransparentBackfaces?.ref.value !== 'opaque') {
@@ -778,6 +780,42 @@ namespace Renderer {
                 }
             }
             if (isTimingMode) ctx.timer.markEnd('Renderer.renderBlendedTransparent');
+        };
+
+        const renderTextOverlay = (group: Scene.Group, camera: ICamera) => {
+            if (isTimingMode) ctx.timer.mark('Renderer.renderTextOverlay');
+            const { renderables } = group;
+            let hasText = false;
+            for (let i = 0, il = renderables.length; i < il; ++i) {
+                const r = renderables[i];
+                if (r.state.visible && r.values.dGeometryType.ref.value === 'text' && r.values.drawCount.ref.value) {
+                    hasText = true;
+                    break;
+                }
+            }
+            if (!hasText) {
+                if (isTimingMode) ctx.timer.markEnd('Renderer.renderTextOverlay');
+                return;
+            }
+            const prevOcclusion = isOccluded;
+            isOccluded = null;
+
+            state.enable(gl.BLEND);
+            state.blendFunc(gl.ONE, gl.ONE_MINUS_SRC_ALPHA);
+            state.disable(gl.DEPTH_TEST);
+            state.depthMask(false);
+            state.disable(gl.CULL_FACE);
+
+            updateInternal(group, camera, null, Mask.All, false);
+
+            for (let i = 0, il = renderables.length; i < il; ++i) {
+                const r = renderables[i];
+                if (r.values.dGeometryType.ref.value === 'text' && r.state.visible) {
+                    renderObject(r, 'color', Flag.None);
+                }
+            }
+            isOccluded = prevOcclusion;
+            if (isTimingMode) ctx.timer.markEnd('Renderer.renderTextOverlay');
         };
 
         const renderVolume = (group: Scene.Group, camera: ICamera, depthTexture: Texture) => {
@@ -807,7 +845,7 @@ namespace Renderer {
             const { renderables } = group;
             for (let i = 0, il = renderables.length; i < il; ++i) {
                 const r = renderables[i];
-                if (checkTransparent(r)) {
+                if (checkTransparent(r) && r.values.dGeometryType.ref.value !== 'text') {
                     renderObject(r, 'color', Flag.None);
                 }
             }
@@ -829,7 +867,7 @@ namespace Renderer {
 
             for (let i = 0, il = renderables.length; i < il; ++i) {
                 const r = renderables[i];
-                if (checkTransparent(r)) {
+                if (checkTransparent(r) && r.values.dGeometryType.ref.value !== 'text') {
                     renderObject(r, 'color', Flag.None);
                 }
             }
@@ -883,6 +921,7 @@ namespace Renderer {
             renderVolume,
             renderWboitTransparent,
             renderDpoitTransparent,
+            renderTextOverlay,
 
             setTime: (time: number) => {
                 ValueCell.updateIfChanged(globalUniforms.uTime, time);

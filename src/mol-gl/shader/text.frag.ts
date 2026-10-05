@@ -24,7 +24,9 @@ uniform float uBackgroundOpacity;
 varying vec2 vTexCoord;
 
 void main(){
-    #include fade_lod
+    if (uRenderMask != MaskAll) {
+        #include fade_lod
+    }
     #include clip_pixel
 
     float fragmentDepth = gl_FragCoord.z;
@@ -91,13 +93,19 @@ void main(){
         gl_FragColor = material;
     #elif defined(dRenderVariant_color) || defined(dRenderVariant_tracing)
         gl_FragColor = material;
-        #include apply_marker_color
-
         #if defined(dRenderVariant_color)
-            #include apply_fog
+            if (uRenderMask == MaskAll) {
+                if (gl_FragColor.a > 0.0001) {
+                    gl_FragColor.rgb *= gl_FragColor.a;
+                }
+            } else {
+                #include apply_marker_color
+                #include apply_fog
+            }
             #include wboit_write
             #include dpoit_write
         #elif defined(dRenderVariant_tracing)
+            #include apply_marker_color
             gl_FragData[1] = vec4(-normalize(vViewPosition), emissive);
             gl_FragData[2] = vec4(material.rgb, uDensity);
         #endif

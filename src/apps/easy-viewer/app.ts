@@ -21,12 +21,10 @@ import { ButtonsType, ModifiersKeys } from '../../mol-util/input/input-observer'
 import { DefaultTrackballBindings } from '../../mol-canvas3d/controls/trackball';
 import { StructureFocusRepresentation } from '../../mol-plugin/behavior/dynamic/selection/structure-focus-representation';
 import { EasyDefaultPreset } from './easy-default-preset';
-import { EasyControls, EasyViewport, EasyViewportControls } from './easy-controls';
+import { EasyControls, EasyViewport, EasyViewportControls, EasyTrajectoryOnlyViewportControls } from './easy-controls';
 import * as Actions from './easy-actions';
 import { applyDefaultColors } from './palettes';
 import { ChainPresentation, EasyViewerColorOptions, EasyViewerInputs, PharmacophoreFeatureType, PharmacophorePoint, Pocket } from './types';
-
-const EmptyViewportControls = () => null;
 
 export type { BaseStyle, EasyColorTheme, EasyStyle, HydrogenMode } from './easy-actions';
 export type { ChainPresentation, EasyRepresentationType, EasyViewerColorOptions, EasyViewerInputs, PharmacophorePoint, Pocket } from './types';
@@ -216,7 +214,7 @@ export class EasyViewer extends Viewer {
             viewport: {
                 ...spec.components?.viewport,
                 view: EasyViewport,
-                controls: options.easyViewportControls === false ? EmptyViewportControls : EasyViewportControls,
+                controls: options.easyViewportControls === false ? EasyTrajectoryOnlyViewportControls : EasyViewportControls,
             },
         };
 
@@ -286,6 +284,9 @@ export class EasyViewer extends Viewer {
 
         // focus 时高亮周边残基 + 配体-残基相互作用（不显示残基-残基）
         Actions.setupFocusVisuals(plugin);
+
+        // 点击空白 canvas 清除 focus / 链选中 / loci 高亮
+        Actions.setupClearSelectionOnEmptyCanvas(plugin);
 
         // 默认只显示极性氢（与面板默认一致）
         void Actions.setHydrogens(plugin, 'polar');

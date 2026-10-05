@@ -25,7 +25,7 @@ export const LabelTextParams = {
     backgroundMargin: PD.Numeric(0, { min: 0, max: 1, step: 0.01 }),
     backgroundColor: PD.Color(ColorNames.black),
     backgroundOpacity: PD.Numeric(0.5, { min: 0, max: 1, step: 0.01 }),
-    borderWidth: PD.Numeric(0.25, { min: 0, max: 0.5, step: 0.01 }),
+    borderWidth: PD.Numeric(0, { min: 0, max: 0.5, step: 0.01 }),
     level: PD.Select('residue', [['chain', 'Chain'], ['residue', 'Residue'], ['element', 'Element']] as const, { isEssential: true }),
     ignoreHydrogens: PD.Boolean(false),
     ignoreHydrogensVariant: PD.Select('all', PD.arrayToOptions(['all', 'non-polar'] as const)),

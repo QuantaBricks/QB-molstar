@@ -9,6 +9,7 @@
  */
 
 import { PluginContext } from '../../mol-plugin/context';
+import { refreshDomResidueLabelStyle } from './dom-residue-labels';
 import { Bond, StructureElement, StructureProperties } from '../../mol-model/structure';
 import { MolScriptBuilder as MS } from '../../mol-script/language/builder';
 import { Color } from '../../mol-util/color';
@@ -31,7 +32,7 @@ const labelStyle: LabelStyle = {
     color: 0x000000,
     backgroundColor: 0xffffff,
     backgroundOpacity: 0,
-    scale: 0.65,
+    scale: 0.78,
 };
 
 export function getLabelStyle(): LabelStyle {
@@ -39,17 +40,18 @@ export function getLabelStyle(): LabelStyle {
 }
 
 function labelTypeParams() {
+    const showBackground = labelStyle.backgroundOpacity > 0.001;
     return {
         level: 'residue' as const,
         residueScale: labelStyle.scale,
-        background: true,
-        backgroundMargin: 0.2,
+        background: showBackground,
+        backgroundMargin: showBackground ? 0.2 : 0,
         backgroundColor: Color(labelStyle.backgroundColor),
         backgroundOpacity: labelStyle.backgroundOpacity,
         borderWidth: 0,
         ignoreHydrogens: true,
-        // 字体图集分辨率（64*(quality+1)px 字形）；4 太重建得慢，2 兼顾清晰与流畅
-        fontQuality: 2,
+        // 字体图集分辨率（64*(quality+1)px 字形）；略提高清晰度
+        fontQuality: 4,
         fontWeight: 'normal' as const,
     };
 }
@@ -75,22 +77,32 @@ async function updateLabelReprs(plugin: PluginContext, fn: (old: any) => void, c
 
 export async function setLabelScale(plugin: PluginContext, scale: number) {
     labelStyle.scale = scale;
+    refreshDomResidueLabelStyle(plugin);
     await updateLabelReprs(plugin, old => { old.type.params.residueScale = scale; }, 'Label Scale');
 }
 
 export async function setLabelColor(plugin: PluginContext, color: number) {
     labelStyle.color = color;
+    refreshDomResidueLabelStyle(plugin);
     await updateLabelReprs(plugin, old => { old.colorTheme.params.value = Color(color); }, 'Label Color');
 }
 
 export async function setLabelBackgroundColor(plugin: PluginContext, color: number) {
     labelStyle.backgroundColor = color;
+    refreshDomResidueLabelStyle(plugin);
     await updateLabelReprs(plugin, old => { old.type.params.backgroundColor = Color(color); }, 'Label Background');
 }
 
 export async function setLabelBackgroundOpacity(plugin: PluginContext, opacity: number) {
     labelStyle.backgroundOpacity = opacity;
-    await updateLabelReprs(plugin, old => { old.type.params.backgroundOpacity = opacity; }, 'Label Background Opacity');
+    refreshDomResidueLabelStyle(plugin);
+    const showBackground = opacity > 0.001;
+    await updateLabelReprs(plugin, old => {
+        old.type.params.backgroundOpacity = opacity;
+        old.type.params.background = showBackground;
+        old.type.params.backgroundMargin = showBackground ? 0.2 : 0;
+        old.type.params.borderWidth = 0;
+    }, 'Label Background Opacity');
 }
 
 async function deleteRef(plugin: PluginContext, ref: string | undefined) {

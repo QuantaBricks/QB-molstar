@@ -205,6 +205,10 @@ export class MultiSamplePass {
         state.disable(gl.BLEND);
         compose.render();
 
+        if (toDrawingBuffer) {
+            drawPass.renderSceneTextOverlay(ctx);
+        }
+
         camera.viewOffset.enabled = false;
         camera.update();
         if (isTimingMode) webgl.timer.markEnd('MultiSamplePass.renderMultiSample');
@@ -312,6 +316,11 @@ export class MultiSamplePass {
 
         camera.viewOffset.enabled = false;
         camera.update();
+
+        if (toDrawingBuffer) {
+            drawPass.renderSceneTextOverlay(ctx);
+        }
+
         if (isTimingMode) webgl.timer.markEnd('MultiSamplePass.renderTemporalMultiSample');
 
         return sampleIndex >= offsetList.length ? -2 : sampleIndex;

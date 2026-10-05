@@ -10,23 +10,33 @@
  */
 
 import { PluginContext } from '../../mol-plugin/context';
-import { Bond, StructureElement, StructureProperties } from '../../mol-model/structure';
+import { Bond, Structure, StructureElement, StructureProperties, Unit } from '../../mol-model/structure';
 import { MolScriptBuilder as MS } from '../../mol-script/language/builder';
 import { OrderedSet } from '../../mol-data/int/ordered-set';
 import { InteractionsProvider } from '../../mol-model-props/computed/interactions';
 import { computeInteractions } from '../../mol-model-props/computed/interactions/interactions';
 import { InteractionsRepresentationProvider } from '../../mol-model-props/computed/representations/interactions';
 import { StructureFocusRepresentation } from '../../mol-plugin/behavior/dynamic/selection/structure-focus-representation';
-import { addLabelRepresentation } from './residue-labels';
+import { getDomResidueLabelLayer } from './dom-residue-labels';
 import { ParamDefinition as PD } from '../../mol-util/param-definition';
 import { ValueBox } from '../../mol-util';
 import { Task } from '../../mol-task';
+import { Color } from '../../mol-util/color';
 
 const FocusInteractionsKey = 'easy-focus-interactions';
 const FocusHighlightKey = 'easy-focus-highlight';
 const FocusPartnersKey = 'easy-focus-partners';
 /** 高亮周边半径（Å）：配体-残基最小原子距离 ≤ 此值 */
 const HighlightRadius = 3;
+
+/** Interaction 高亮：C 原子与背景对比（浅底深灰碳、深底白碳），其它元素仍用 element-symbol */
+const InteractionCarbonOnLightBg = 0x404040;
+
+function interactionHighlightColorParams(plugin: PluginContext) {
+    const bg = (plugin.canvas3d?.props.renderer.backgroundColor as number | undefined) ?? 0xffffff;
+    const carbon = Color.luminance(bg) < 0.5 ? 0xffffff : InteractionCarbonOnLightBg;
+    return { carbonColor: { name: 'uniform' as const, params: { value: Color(carbon) } } };
+}
 
 /** 水分子原子的表达式 */
 function waterExpression() {
@@ -191,7 +201,10 @@ function installFocusVisuals(plugin: PluginContext) {
     let disposed = false;
     let queue = Promise.resolve();
 
+    const domLabels = getDomResidueLabelLayer(plugin);
+
     const clear = async () => {
+        domLabels.clear();
         const a = interactionsRef, b = highlightRef, c = partnerRef;
         interactionsRef = undefined;
         highlightRef = undefined;
@@ -245,7 +258,10 @@ function installFocusVisuals(plugin: PluginContext) {
             const ligandComponent: any = await plugin.builders.structure.tryCreateComponentFromExpression(
                 parent, focusExpression, FocusInteractionsKey + '-' + (interactionsSeq++), { label: 'Focus interactions' }
             );
-            if (!ligandComponent || disposed) return;
+            if (!ligandComponent || disposed) {
+                if (!disposed) domLabels.setFromComponentRefs([], focusLoci);
+                return;
+            }
             const ligandRef: string = ligandComponent.ref;
             interactionsRef = ligandRef;
             currentInteractionsRef = ligandRef;
@@ -276,13 +292,12 @@ function installFocusVisuals(plugin: PluginContext) {
             const hr: any = await plugin.builders.structure.representation.addRepresentation(highlightComponent, {
                 type: highlightMode,
                 color: 'element-symbol',
-                colorParams: { carbonColor: { name: 'element-symbol', params: {} } },
+                colorParams: interactionHighlightColorParams(plugin),
                 size: 'physical',
                 sizeParams: { scale: highlightScale },
                 typeParams: highlightTypeParams(plugin),
             });
             if (hr?.ref) highlightReprRefs.push(hr.ref);
-            await addLabelRepresentation(plugin, highlightComponent);
         }
 
         if (partnerExpression) {
@@ -294,16 +309,16 @@ function installFocusVisuals(plugin: PluginContext) {
                 const pr: any = await plugin.builders.structure.representation.addRepresentation(partnerComponent, {
                     type: highlightMode,
                     color: 'element-symbol',
-                    colorParams: { carbonColor: { name: 'element-symbol', params: {} } },
+                    colorParams: interactionHighlightColorParams(plugin),
                     size: 'physical',
                     sizeParams: { scale: highlightScale },
                     typeParams: highlightTypeParams(plugin),
                 });
                 if (pr?.ref) highlightReprRefs.push(pr.ref);
-                await addLabelRepresentation(plugin, partnerComponent);
             }
         }
 
+        domLabels.setFromComponentRefs([highlightRef, partnerRef], focusLoci);
         setHighlightedResidues(collectHighlightedResidues(plugin, [highlightRef, partnerRef]));
     };
 
@@ -318,7 +333,7 @@ function installFocusVisuals(plugin: PluginContext) {
         schedule(lastEntry);
     };
 
-    return { dispose() { disposed = true; forceRefresh = undefined; sub.unsubscribe(); void clear(); } };
+    return { dispose() { disposed = true; forceRefresh = undefined; sub.unsubscribe(); domLabels.dispose(); void clear(); } };
 }
 
 interface FocusVisualsState {
@@ -353,22 +368,21 @@ function setHighlightedResidues(list: HighlightedResidue[]) {
     for (const fn of highlightedResidueListeners) fn();
 }
 
-/** 枚举一个结构里出现过的残基（去重、按链/序号排序） */
-function residuesOf(structure: any): HighlightedResidue[] {
+/** 枚举一个结构里出现过的残基（去重；仅原子 unit，避免 hierarchy 列缺失） */
+function residuesOf(structure: Structure): HighlightedResidue[] {
     const result: HighlightedResidue[] = [];
     const seen = new Set<string>();
     const loc = StructureElement.Location.create(structure);
     for (const unit of structure.units) {
-        const { residues, chains, chainAtomSegments, residueAtomSegments } = unit.model.atomicHierarchy;
+        if (!Unit.isAtomic(unit)) continue;
         loc.unit = unit;
-        for (let i = 0; i < unit.elements.length; i++) {
-            const e = unit.elements[i];
-            loc.element = e;
-            const r = residueAtomSegments.index[e];
-            const chain = chains.label_asym_id.value(chainAtomSegments.index[e]);
-            const comp = residues.label_comp_id.value(r);
+        const elements = unit.elements;
+        for (let i = 0, il = elements.length; i < il; i++) {
+            loc.element = elements[i];
+            const chain = StructureProperties.chain.label_asym_id(loc);
+            const comp = StructureProperties.atom.label_comp_id(loc);
             const isWater = StructureProperties.entity.type(loc) === 'water';
-            const seq = isWater ? '' : String(residues.auth_seq_id.value(r));
+            const seq = isWater ? '' : String(StructureProperties.residue.auth_seq_id(loc));
             const id = isWater ? `${chain}:${comp}:w:${unit.id}` : `${chain}:${comp}:${seq}`;
             if (seen.has(id)) continue;
             seen.add(id);
@@ -384,8 +398,8 @@ function collectHighlightedResidues(plugin: PluginContext, refs: (string | undef
     for (const ref of refs) {
         if (!ref) continue;
         const data = plugin.state.data.cells.get(ref)?.obj?.data;
-        if (!data) continue;
-        for (const r of residuesOf(data)) {
+        if (!data?.units) continue;
+        for (const r of residuesOf(data as Structure)) {
             const id = `${r.chain}:${r.comp}:${r.seq}`;
             if (seen.has(id)) continue;
             seen.add(id);
@@ -451,6 +465,21 @@ function highlightTypeParams(plugin: PluginContext) {
     return highlightMode === 'line'
         ? { sizeFactor: highlightLineScale, ...hydrogenParams, ...styleParams }
         : { sizeFactor: 0.16, excludeTypes: ['hydrogen-bond', 'metal-coordination'], ...hydrogenParams, ...styleParams };
+}
+
+/** 背景变化时同步 Interaction 高亮残基的碳配色 */
+export async function refreshInteractionHighlightColors(plugin: PluginContext) {
+    if (highlightReprRefs.length === 0) return;
+    const colorParams = interactionHighlightColorParams(plugin);
+    const b = plugin.build();
+    for (const ref of highlightReprRefs) {
+        b.to(ref).update((old: any) => {
+            if (old.colorTheme?.name !== 'element-symbol') return;
+            if (!old.colorTheme.params) old.colorTheme.params = {};
+            old.colorTheme.params.carbonColor = colorParams.carbonColor;
+        });
+    }
+    await b.commit({ canUndo: 'Interaction Highlight Carbon' });
 }
 
 /** 高亮残基的表现形式：球棍 / line */

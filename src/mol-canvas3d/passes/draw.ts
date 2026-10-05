@@ -432,6 +432,13 @@ export class DrawPass {
         }
     }
 
+    private _drawTextOverlay(renderer: Renderer, camera: ICamera, scene: Scene) {
+        const { x, y, width, height } = camera.viewport;
+        renderer.setViewport(x, y, width, height);
+        renderer.update(camera, scene);
+        renderer.renderTextOverlay(scene.primitives, camera);
+    }
+
     private _render(renderer: Renderer, camera: ICamera, scene: Scene, helper: Helper, toDrawingBuffer: boolean, transparentBackground: boolean, props: Props) {
         if (camera.disabled) return;
 
@@ -537,7 +544,11 @@ export class DrawPass {
         }
 
         if (needsTargetCopy) {
-            this.drawTarget.bind();
+            if (toDrawingBuffer) {
+                this.webgl.bindDrawingBuffer();
+            } else {
+                this.drawTarget.bind();
+            }
 
             this.webgl.state.disable(this.webgl.gl.DEPTH_TEST);
             if (postprocessingEnabled) {
@@ -545,8 +556,30 @@ export class DrawPass {
             } else if (volumeRendering || oitEnabled) {
                 this.copyFboTarget.render();
             }
+        } else if (toDrawingBuffer) {
+            this.webgl.bindDrawingBuffer();
+        } else {
+            this.getColorTarget(props.postprocessing).bind();
         }
 
+        if (toDrawingBuffer) {
+            this._drawTextOverlay(renderer, camera, scene);
+        }
+
+        this.webgl.gl.flush();
+    }
+
+    renderSceneTextOverlay(ctx: RenderContext) {
+        const { renderer, camera, scene } = ctx;
+        renderer.setDrawingBufferSize(this.colorTarget.getWidth(), this.colorTarget.getHeight());
+        renderer.setPixelRatio(this.webgl.pixelRatio);
+        this.webgl.bindDrawingBuffer();
+        if (StereoCamera.is(camera)) {
+            this._drawTextOverlay(renderer, camera.left, scene);
+            this._drawTextOverlay(renderer, camera.right, scene);
+        } else {
+            this._drawTextOverlay(renderer, camera, scene);
+        }
         this.webgl.gl.flush();
     }
 

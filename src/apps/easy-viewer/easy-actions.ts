@@ -38,11 +38,12 @@ import { showPharmacophore, PharmacophoreHandle } from './overlay-pharmacophore'
 import { setHighlightMode as refreshHighlightMode, getHighlightMode } from './focus-visuals';
 import { showPockets, PocketHandle } from './overlay-pocket';
 import { setLabelColor } from './residue-labels';
+import { refreshInteractionHighlightColors } from './focus-visuals';
 import { Interactions } from '../../mol-model-props/computed/interactions/interactions';
 
 export type { EasyColorTheme, EasyRepresentationType, EasyStyle, HydrogenMode } from './types';
 export { setupResidueLabels, getLabelStyle, setLabelScale, setLabelColor, setLabelBackgroundColor, setLabelBackgroundOpacity } from './residue-labels';
-export { setupFocusVisuals, setInteractionsVisible, areInteractionsVisible, subscribeInteractionsVisible, setInteractionsIncludeWater, areWaterInteractionsVisible, setHighlightScale, setHighlightLineScale, setInteractionLineScale, getHighlightScale, getHighlightLineScale, getInteractionLineScale, getHighlightMode, setHighlightMode, getHighlightedResidues, subscribeHighlightedResidues } from './focus-visuals';
+export { setupFocusVisuals, refreshInteractionHighlightColors, setInteractionsVisible, areInteractionsVisible, subscribeInteractionsVisible, setInteractionsIncludeWater, areWaterInteractionsVisible, setHighlightScale, setHighlightLineScale, setInteractionLineScale, getHighlightScale, getHighlightLineScale, getInteractionLineScale, getHighlightMode, setHighlightMode, getHighlightedResidues, subscribeHighlightedResidues } from './focus-visuals';
 export type { HighlightedResidue } from './focus-visuals';
 
 export const EasyColorThemes: [EasyColorTheme, string][] = [
@@ -157,35 +158,80 @@ export function hasLigands(plugin: PluginContext): boolean {
 
 const LigandComponentTag = 'structure-component-static-ligand';
 const LigandElementParams = { carbonColor: { name: 'element-symbol', params: {} } };
-const TubeReferenceRadius = 25;
+/** 滑块值 ×2 = putty sizeFactor；0.1 → 0.2（Mol* 默认），配合 putty 默认 uncertainty 尺寸主题 */
+const TubeSizeToFactor = 2;
+export const DEFAULT_TUBE_SIZE = 0.1;
 
-function tubeSizeFactor(size: number, structureRadius: number) {
-    return size * 2 * structureRadius / TubeReferenceRadius;
+function tubeSizeFactor(size: number) {
+    return size * TubeSizeToFactor;
+}
+
+function tubeSizeFromSizeFactor(sizeFactor: number) {
+    return sizeFactor / TubeSizeToFactor;
 }
 
 /** 从当前 putty 表示反算滑块值，让 UI 展示现有粗细，而不是猜测默认值。 */
 export function getTubeSize(plugin: PluginContext, chain: string): number | undefined {
     const tag = `qb-chain-repr-${chain}-backbone`;
     for (const s of getStructures(plugin)) {
-        const structureRadius = s.cell.obj?.data?.boundary?.sphere?.radius ?? TubeReferenceRadius;
         for (const c of s.components) {
             for (const r of c.representations) {
                 if (!(r.cell.transform.tags ?? []).includes(tag)) continue;
                 const params = r.cell.transform.params as any;
                 if (params?.type?.name !== 'putty' || typeof params.type.params?.sizeFactor !== 'number') continue;
-                return params.type.params.sizeFactor * TubeReferenceRadius / (2 * structureRadius);
+                return tubeSizeFromSizeFactor(params.type.params.sizeFactor);
             }
         }
     }
     return undefined;
 }
 
+function isLigandComponent(component: { cell: { transform: { tags?: string[]; params?: unknown } } }): boolean {
+    const tags = component.cell.transform.tags ?? [];
+    if (tags.includes(LigandComponentTag) || tags.includes(EasyLigandTag)) return true;
+    const p = component.cell.transform.params as { type?: { name?: string; params?: string } } | undefined;
+    return p?.type?.name === 'static' && p?.type?.params === 'ligand';
+}
+
 function getLigandComponents(plugin: PluginContext) {
     const result: any[] = [];
+    const seen = new Set<string>();
     for (const s of getStructures(plugin)) {
         for (const c of s.components) {
-            const tags = c.cell.transform.tags ?? [];
-            if (tags.includes(LigandComponentTag) || tags.includes(EasyLigandTag)) result.push(c);
+            if (!isLigandComponent(c)) continue;
+            const ref = c.cell.transform.ref;
+            if (seen.has(ref)) continue;
+            seen.add(ref);
+            result.push(c);
+        }
+    }
+    return result;
+}
+
+/** 配体相关表示：ligand 组件上的 repr + preset 里 tag 为 ligand 的 repr */
+function collectLigandRepresentationEntries(plugin: PluginContext, type?: EasyRepresentationType) {
+    const result: { repr: any; type: EasyRepresentationType; component: any }[] = [];
+    const seen = new Set<string>();
+    const add = (repr: any, component: any) => {
+        const ref = repr.cell.transform.ref;
+        if (seen.has(ref)) return;
+        const name = (repr.cell.transform.params as any)?.type?.name as EasyRepresentationType | undefined;
+        if (!name) return;
+        if (type && name !== type) return;
+        seen.add(ref);
+        result.push({ repr, type: name, component });
+    };
+    for (const c of getLigandComponents(plugin)) {
+        for (const r of c.representations) add(r, c);
+    }
+    for (const s of getStructures(plugin)) {
+        for (const c of s.components) {
+            for (const r of c.representations) {
+                const tags = r.cell.transform.tags ?? [];
+                if (tags.includes('ligand') || tags.some(t => typeof t === 'string' && t.startsWith('qb-ligand-repr-'))) {
+                    add(r, c);
+                }
+            }
         }
     }
     return result;
@@ -193,16 +239,11 @@ function getLigandComponents(plugin: PluginContext) {
 
 /** 配体组件上的所有表示（可按类型过滤） */
 function ligandReprs(plugin: PluginContext, type?: EasyRepresentationType) {
-    const result: { repr: any, type: EasyRepresentationType }[] = [];
-    for (const c of getLigandComponents(plugin)) {
-        for (const r of c.representations) {
-            const name = (r.cell.transform.params as any)?.type?.name as EasyRepresentationType | undefined;
-            if (!name) continue;
-            if (type && name !== type) continue;
-            result.push({ repr: r, type: name });
-        }
-    }
-    return result;
+    return collectLigandRepresentationEntries(plugin, type).map(({ repr, type: t }) => ({ repr, type: t }));
+}
+
+export function hasLigandRepresentations(plugin: PluginContext): boolean {
+    return collectLigandRepresentationEntries(plugin).length > 0;
 }
 
 /** 配体当前的表示层（增量叠加，去重） */
@@ -214,10 +255,11 @@ export function getLigandLayers(plugin: PluginContext): RepresentationLayer[] {
         seen.add(type);
         const params = repr.cell.transform.params as any;
         const typeParams = params?.type?.params ?? {};
+        const { color, colorOptions } = resolveEasyColorFromRepr(params?.colorTheme);
         layers.push({
             type,
-            color: params?.colorTheme?.name ?? 'element-symbol',
-            colorOptions: params?.colorTheme?.params,
+            color,
+            colorOptions,
             alpha: typeParams.alpha,
             size: params?.sizeTheme?.params?.scale,
             visible: !repr.cell.state.isHidden,
@@ -265,19 +307,19 @@ export function setLigandLayerVisible(plugin: PluginContext, type: EasyRepresent
 
 /** 原地改配体层颜色，不重建几何 */
 export async function updateLigandLayerColor(plugin: PluginContext, type: EasyRepresentationType, color: EasyColorTheme, colorOptions?: EasyViewerColorOptions) {
-    const colorParams = colorThemeParams(color, colorOptions);
+    const colorParams = color === 'element-symbol'
+        ? LigandElementParams
+        : colorThemeParams(color, colorOptions);
     const update = plugin.build();
-    for (const c of getLigandComponents(plugin)) {
-        for (const repr of c.representations) {
-            if ((repr.cell.transform.params as any)?.type?.name !== type) continue;
-            update.to(repr.cell).update(old => {
-                old.colorTheme = createStructureColorThemeParams(
-                    plugin, c.structure.cell.obj?.data, (old as any).type?.name, color, colorParams
-                ) as any;
-            });
-        }
+    for (const { repr, component } of collectLigandRepresentationEntries(plugin, type)) {
+        update.to(repr.cell).update(old => {
+            old.colorTheme = createStructureColorThemeParams(
+                plugin, component.structure.cell.obj?.data, (old as any).type?.name, color, colorParams
+            ) as any;
+        });
     }
     await update.commit({ canUndo: 'Ligand Color' });
+    plugin.canvas3d?.requestDraw();
 }
 
 /** 原地改配体层透明度，不重建几何 */
@@ -494,7 +536,7 @@ export function mergeChainLayersForDisplay(existing: RepresentationLayer[], from
             color: lp.color ?? ex?.color ?? 'chain-id',
             colorOptions: lp.colorOptions ?? ex?.colorOptions,
             alpha: lp.alpha ?? ex?.alpha,
-            size: lp.size ?? ex?.size,
+            size: lp.size ?? ex?.size ?? (lp.type === 'backbone' ? DEFAULT_TUBE_SIZE : undefined),
             visible: lp.visible ?? ex?.visible,
         };
     });
@@ -515,7 +557,11 @@ export function readChainLayersFromPlugin(plugin: PluginContext, chain: string):
                 const { color, colorOptions } = resolveEasyColorFromRepr(params.colorTheme);
                 const alpha = params.type?.params?.alpha;
                 const visible = !r.cell.state.isHidden;
-                layers.push({ type, color, colorOptions, alpha, visible });
+                let size: number | undefined;
+                if (type === 'backbone' && params.type?.name === 'putty' && typeof params.type.params?.sizeFactor === 'number') {
+                    size = tubeSizeFromSizeFactor(params.type.params.sizeFactor);
+                }
+                layers.push({ type, color, colorOptions, alpha, visible, size });
             }
         }
     }
@@ -560,7 +606,7 @@ async function addChainPresentationFor(plugin: PluginContext, structure: ReturnT
         const isTube = layer.type === 'backbone';
         const reprType: any = isTube ? 'putty' : layer.type;
         const reprTypeParams = isTube
-            ? { ...(layer.alpha !== undefined ? { alpha: layer.alpha } : {}), visuals: ['polymer-tube'], sizeFactor: tubeSizeFactor(layer.size ?? 0.08, structure.cell.obj?.data?.boundary?.sphere?.radius ?? TubeReferenceRadius) }
+            ? { ...(layer.alpha !== undefined ? { alpha: layer.alpha } : {}), visuals: ['polymer-tube'], sizeFactor: tubeSizeFactor(layer.size ?? DEFAULT_TUBE_SIZE) }
             : typeParams;
 
         // 新建表示时套用当前全局外观（平光/材质），否则高反光下新建的表示会回落到默认哑光
@@ -570,7 +616,6 @@ async function addChainPresentationFor(plugin: PluginContext, structure: ReturnT
             type: reprType,
             color,
             colorParams: colorThemeParams(color, layer.colorOptions),
-            ...(isTube ? { sizeTheme: { name: 'uniform', params: { value: 1 } } } : {}),
             typeParams: { ...(reprTypeParams || {}), ...styleParams },
         }, { tag: `qb-chain-repr-${pres.chain}-${layer.type}` });
 
@@ -680,15 +725,17 @@ export async function updateLayerAlpha(plugin: PluginContext, chain: string, typ
 export async function updateLayerSize(plugin: PluginContext, chain: string, type: EasyRepresentationType, size: number) {
     if (type !== 'backbone') return;
     const update = plugin.build();
+    const factor = tubeSizeFactor(size);
     for (const s of getStructures(plugin)) {
-        const factor = tubeSizeFactor(size, s.cell.obj?.data?.boundary?.sphere?.radius ?? TubeReferenceRadius);
         for (const c of s.components) {
             for (const r of c.representations) {
                 if ((r.cell.transform.tags ?? []).includes(`qb-chain-repr-${chain}-${type}`)) {
                     update.to(r.cell).update(old => {
                         const p = old as any;
                         if (p.type?.name !== 'putty') return;
-                        p.sizeTheme = { name: 'uniform', params: { value: 1 } };
+                        if (p.sizeTheme?.name === 'uniform') {
+                            p.sizeTheme = { name: 'uncertainty', params: { bfactorFactor: 0.1, rmsfFactor: 0.05, baseSize: 0.2 } };
+                        }
                         if (!p.type.params) p.type.params = {};
                         p.type.params.sizeFactor = factor;
                     });
@@ -1146,6 +1193,22 @@ export function setTargetedChain(plugin: PluginContext, chain: string | null, hi
     for (const fn of targetedChainListeners) fn();
 }
 
+/** 清除 focus、链目标与 canvas 上的 loci 选中（空白处点击时用） */
+export function clearInteractionSelection(plugin: PluginContext) {
+    setTargetedChain(plugin, null);
+    plugin.managers.structure.focus.clear();
+    plugin.managers.interactivity.lociSelects.deselectAll();
+}
+
+/** 点击空白 canvas 时自动清除选中/焦点（focus-visuals 会随 focus 清空而收起高亮） */
+export function setupClearSelectionOnEmptyCanvas(plugin: PluginContext) {
+    plugin.behaviors.interaction.click.subscribe(({ current }) => {
+        if (!plugin.canvas3d || plugin.isBusy) return;
+        if (!Loci.isEmpty(current.loci)) return;
+        clearInteractionSelection(plugin);
+    });
+}
+
 function chainTypeName(subtype: string): string {
     if (!subtype) return '';
     if (subtype.indexOf('polypeptide') >= 0) return 'protein';
@@ -1541,6 +1604,7 @@ export function autoLabelColor(bg: Color): number {
 export function setBackground(plugin: PluginContext, color: Color) {
     plugin.canvas3d?.setProps({ renderer: { backgroundColor: color } });
     void setLabelColor(plugin, autoLabelColor(color));
+    void refreshInteractionHighlightColors(plugin);
 }
 
 /** 光照强度（主光源 intensity） */
@@ -1556,6 +1620,14 @@ export function setLightIntensity(plugin: PluginContext, intensity: number) {
 }
 
 //
+
+export const PHARMACOPHORE_SCALE_MIN = 0.1;
+export const PHARMACOPHORE_SCALE_MAX = 0.4;
+export const PHARMACOPHORE_SCALE_DEFAULT = 0.25;
+
+export function clampPharmacophoreScale(scale: number) {
+    return Math.min(PHARMACOPHORE_SCALE_MAX, Math.max(PHARMACOPHORE_SCALE_MIN, scale));
+}
 
 interface OverlayState {
     pharmacophore?: PharmacophoreHandle;
@@ -1573,18 +1645,19 @@ const overlayStates = new WeakMap<PluginContext, OverlayState>();
 function overlayState(plugin: PluginContext): OverlayState {
     let s = overlayStates.get(plugin);
     if (!s) {
-        s = { pharmacophorePoints: [], pharmacophoreScale: 1, pharmacophoreVisible: true, hiddenPharmacophoreTypes: new Set(), pocketData: [], hiddenPockets: new Set() };
+        s = { pharmacophorePoints: [], pharmacophoreScale: PHARMACOPHORE_SCALE_DEFAULT, pharmacophoreVisible: true, hiddenPharmacophoreTypes: new Set(), pocketData: [], hiddenPockets: new Set() };
         overlayStates.set(plugin, s);
     }
     return s;
 }
 
-export async function setPharmacophore(plugin: PluginContext, points: PharmacophorePoint[], scale = 1) {
+export async function setPharmacophore(plugin: PluginContext, points: PharmacophorePoint[], scale = PHARMACOPHORE_SCALE_DEFAULT) {
     const s = overlayState(plugin);
     s.pharmacophore?.dispose();
     s.pharmacophorePoints = points;
-    s.pharmacophoreScale = scale;
-    const handle = await showPharmacophore(plugin, points, scale);
+    const clamped = clampPharmacophoreScale(scale);
+    s.pharmacophoreScale = clamped;
+    const handle = await showPharmacophore(plugin, points, clamped);
     // 重建后按当前状态恢复：整体可见性 + 被隐藏的特征类型
     handle.setVisible(s.pharmacophoreVisible);
     for (const type of s.hiddenPharmacophoreTypes) handle.setTypeVisible(type, false);
@@ -1613,6 +1686,10 @@ export function clearPharmacophore(plugin: PluginContext) {
 
 export function getPharmacophorePoints(plugin: PluginContext) {
     return overlayState(plugin).pharmacophorePoints;
+}
+
+export function getPharmacophoreScale(plugin: PluginContext) {
+    return overlayState(plugin).pharmacophoreScale;
 }
 
 /** 显示/隐藏药效团（不重建） */

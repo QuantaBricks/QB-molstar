@@ -73,6 +73,8 @@ interface Scene extends Object3D {
     readonly transparency: Transparency
 
     readonly primitives: Scene.Group
+    /** 保留分组接口；3D 文字在 primitives 中，由 DrawPass 在后处理前绘制 */
+    readonly labels: Scene.Group
     readonly volumes: Scene.Group
 
     /** Returns `true` if some visibility has changed, `false` otherwise. */
@@ -116,6 +118,7 @@ namespace Scene {
         const boundingSphereVisible = Sphere3D();
 
         const primitives: GraphicsRenderable[] = [];
+        const labels: GraphicsRenderable[] = [];
         const volumes: GraphicsRenderable[] = [];
 
         let boundingSphereDirty = true;
@@ -163,6 +166,7 @@ namespace Scene {
                 renderable.dispose();
                 arraySetRemove(renderables, renderable);
                 arraySetRemove(primitives, renderable);
+                arraySetRemove(labels, renderable);
                 arraySetRemove(volumes, renderable);
                 renderableMap.delete(o);
                 boundingSphereDirty = true;
@@ -346,6 +350,7 @@ namespace Scene {
 
             renderables,
             primitives: { view, position, direction, up, renderables: primitives },
+            labels: { view, position, direction, up, renderables: labels },
             volumes: { view, position, direction, up, renderables: volumes },
 
             syncVisibility,
@@ -401,6 +406,7 @@ namespace Scene {
                 }
                 renderables.length = 0;
                 primitives.length = 0;
+                labels.length = 0;
                 volumes.length = 0;
                 renderableMap.clear();
                 boundingSphereDirty = true;

@@ -46,6 +46,9 @@ const ChainColors: EasyColorTheme[] = [
     'uniform',
 ];
 
+/** 配体层配色：元素色 或 纯色 */
+const LigandColors: EasyColorTheme[] = ['element-symbol', 'uniform'];
+
 const Backgrounds: [string, Color][] = [
     ['white', ColorNames.white],
     ['gray', Color(0xdddddd)],
@@ -294,6 +297,16 @@ function EasyScreenshotPanel() {
     </div>;
 }
 
+/** Embedded hosts: hide Tune/export toolbar but keep multi-model trajectory jump controls. */
+export function EasyTrajectoryOnlyViewportControls() {
+    return <>
+        <style>{EASY_MODEL_TRAJ_BAR_STYLE}</style>
+        <div className='easy-model-traj-bar'>
+            <TrajectoryViewportControls />
+        </div>
+    </>;
+}
+
 export function EasyViewportControls() {
     const plugin = React.useContext(PluginReactContext);
     const classic = React.useSyncExternalStore(Actions.subscribeClassicMode, Actions.isClassicMode);
@@ -308,7 +321,7 @@ export function EasyViewportControls() {
     const [openDialog, setOpenDialog] = React.useState(false);
     const [phOpen, setPhOpen] = React.useState(false);
     const [phVisible, setPhVisible] = React.useState(() => Actions.isPharmacophoreVisible(plugin));
-    const [phScale, setPhScale] = React.useState(1);
+    const [phScale, setPhScale] = React.useState(() => Actions.getPharmacophoreScale(plugin));
     const [phPoints, setPhPoints] = React.useState(() => Actions.getPharmacophorePoints(plugin));
     const [phHidden, setPhHidden] = React.useState<Set<string>>(() => new Set(Actions.getHiddenPharmacophoreTypes(plugin)));
     const phTypes = Array.from(new Set(phPoints.map(pt => pt.type)));
@@ -366,6 +379,7 @@ export function EasyViewportControls() {
             setPhPoints([...Actions.getPharmacophorePoints(plugin)]);
             setPhHidden(new Set(Actions.getHiddenPharmacophoreTypes(plugin)));
             setPhVisible(Actions.isPharmacophoreVisible(plugin));
+            setPhScale(Actions.getPharmacophoreScale(plugin));
         };
         refresh();
         const sub = Actions.subscribePharmacophore(refresh);
@@ -437,9 +451,9 @@ export function EasyViewportControls() {
             })}
             <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 <small style={{ minWidth: 40 }}>{I18n.t('radius')}</small>
-                <input type="range" min={0.3} max={2} step={0.1} value={phScale} style={{ flex: 1 }}
-                    onChange={e => { const s = parseFloat(e.target.value); setPhScale(s); Actions.setPharmacophore(plugin, phPoints, s); }} />
-                <span style={{ minWidth: 28, textAlign: 'right', fontSize: 12 }}>{phScale.toFixed(1)}</span>
+                <input type="range" min={Actions.PHARMACOPHORE_SCALE_MIN} max={Actions.PHARMACOPHORE_SCALE_MAX} step={0.05} value={phScale} style={{ flex: 1 }}
+                    onChange={e => { const s = Actions.clampPharmacophoreScale(parseFloat(e.target.value)); setPhScale(s); Actions.setPharmacophore(plugin, phPoints, s); }} />
+                <span style={{ minWidth: 28, textAlign: 'right', fontSize: 12 }}>{phScale.toFixed(2)}</span>
             </div>
         </div>}
         <input ref={openFileInput} type='file' accept={StructureFileAccept} style={{ display: 'none' }} onChange={onOpenFile} />
@@ -753,7 +767,7 @@ export class EasyControls extends PluginUIComponent<{}, {
                     background: transparent !important;
                     border-right: none !important;
                     pointer-events: none;
-                    z-index: 20;
+                    z-index: 30;
                 }
                 .msp-layout-standard-reactive:has(.easy-panel) .msp-layout-main,
                 .msp-layout-standard-reactive:has(.easy-panel) .msp-layout-top,
@@ -853,7 +867,7 @@ export class EasyControls extends PluginUIComponent<{}, {
     }
 
     private layerConfigKey(layer: RepresentationLayer): string {
-        return `${layer.type}:${layer.color ?? ''}:${JSON.stringify(layer.colorOptions ?? null)}:${layer.alpha ?? ''}:${layer.visible ?? ''}`;
+        return `${layer.type}:${layer.color ?? ''}:${JSON.stringify(layer.colorOptions ?? null)}:${layer.alpha ?? ''}:${layer.size ?? ''}:${layer.visible ?? ''}`;
     }
 
     private syncChainPresFromPlugin(chainPres: { [chain: string]: ChainPresentation }, chain: string) {
@@ -912,7 +926,11 @@ export class EasyControls extends PluginUIComponent<{}, {
     }
 
     private addLayer(type: EasyRepresentationType) {
-        this.commitLayers((_c, layers) => layers.some(l => l.type === type) ? layers : [...layers, { type, color: 'chain-id' }]);
+        this.commitLayers((_c, layers) => layers.some(l => l.type === type) ? layers : [...layers, {
+            type,
+            color: 'chain-id',
+            ...(type === 'backbone' ? { size: Actions.DEFAULT_TUBE_SIZE } : {}),
+        }]);
     }
 
     private removeLayer(type: EasyRepresentationType) {
@@ -1041,9 +1059,20 @@ export class EasyControls extends PluginUIComponent<{}, {
     }
 
     /** 表示层卡片（聚合物 / 配体共用） */
-    private renderLayer(layer: RepresentationLayer, index: number, collapseKey: string, onVisible: (v: boolean) => void, onRemove: () => void, onAlpha: (a: number) => void, onSize?: (s: number) => void) {
+    private renderLayer(
+        layer: RepresentationLayer,
+        index: number,
+        collapseKey: string,
+        onVisible: (v: boolean) => void,
+        onRemove: () => void,
+        onAlpha: (a: number) => void,
+        onSize?: (s: number) => void,
+        ligandColor?: { onSetColor: (theme: EasyColorTheme, uniformColor?: number) => void },
+    ) {
         const isSurface = layer.type === 'molecular-surface' || layer.type === 'gaussian-surface';
         const collapsed = !!this.state.collapsed[collapseKey];
+        const color = layer.color ?? 'element-symbol';
+        const uniformColor = layer.colorOptions?.uniformColor ?? this.state.uniformColor;
         return <div key={layer.type} style={layerBoxStyle}>
             <div style={rowStyle}>
                 <button title='收起/展开' onClick={() => this.toggleCollapse(collapseKey)} style={collapseButtonStyle}>{collapsed ? '▸' : '▾'}</button>
@@ -1055,6 +1084,28 @@ export class EasyControls extends PluginUIComponent<{}, {
                 </button>
                 <button className='easy-icon-btn' title={I18n.t('remove')} onClick={onRemove} style={removeButtonStyle}><TrashSvg /></button>
             </div>
+            {ligandColor && <>
+                <div style={{ ...rowStyle, marginTop: 4 }}>
+                    <small style={{ minWidth: 32 }}>{I18n.t('color')}</small>
+                    <select style={{ ...selectStyle, marginTop: 0, flex: 1 }} value={color}
+                        onChange={e => {
+                            const theme = e.target.value as EasyColorTheme;
+                            ligandColor.onSetColor(theme, theme === 'uniform' ? uniformColor : undefined);
+                        }}>
+                        {LigandColors.map(v => <option key={v} value={v}>{I18n.themeName(v)}</option>)}
+                    </select>
+                </div>
+                {color === 'uniform' &&
+                    <div style={{ ...rowStyle, marginTop: 4 }}>
+                        <input type="color" value={'#' + uniformColor.toString(16).padStart(6, '0')}
+                            onChange={e => ligandColor.onSetColor('uniform', parseInt(e.target.value.slice(1), 16))}
+                            style={{ ...colorInputStyle, width: 30, height: 24, borderRadius: 4 }} />
+                        {UniformSwatches.map(c =>
+                            <button key={c} title={'#' + c.toString(16).padStart(6, '0')}
+                                style={{ ...swatchStyle(uniformColor === c), background: '#' + c.toString(16).padStart(6, '0') }}
+                                onClick={() => ligandColor.onSetColor('uniform', c)} />)}
+                    </div>}
+            </>}
             {!collapsed && isSurface && <PropRow id={collapseKey + ':opacity'} label={I18n.t('opacity')} collapsed={!!this.state.collapsed[collapseKey + ':opacity']} onToggle={this.toggleCollapse}>
                 <input type="range" min={0.1} max={1} step={0.05} value={layer.alpha ?? 1}
                     style={{ flex: 1 }}
@@ -1136,7 +1187,7 @@ export class EasyControls extends PluginUIComponent<{}, {
                             const chainPalette = layerOpts?.chainPalette ?? 'default';
                             const rainbowPalette = layerOpts?.rainbowPalette ?? 'blue';
                             const uniformColor = layerOpts?.uniformColor ?? this.state.uniformColor;
-                            const tubeSize = layer.size ?? (displayChain ? Actions.getTubeSize(p, displayChain) : undefined) ?? 0.08;
+                            const tubeSize = layer.size ?? (displayChain ? Actions.getTubeSize(p, displayChain) : undefined) ?? Actions.DEFAULT_TUBE_SIZE;
                             const collapseKey = 'poly:' + this.state.chainTarget + ':' + layer.type;
                             const collapsed = !!this.state.collapsed[collapseKey];
                             return <div key={this.state.chainTarget + ':' + layer.type} style={layerBoxStyle}>
@@ -1209,13 +1260,22 @@ export class EasyControls extends PluginUIComponent<{}, {
                 </div>
                 {(() => {
                     const layers = Actions.getLigandLayers(p);
-                    if (layers.length === 0) return <div style={{ marginTop: 4 }}><small style={{ color: '#888' }}>{I18n.t('noRepr')}</small></div>;
+                    if (layers.length === 0) {
+                        return <div style={{ marginTop: 4 }}><small style={{ color: '#888' }}>{I18n.t('noRepr')}</small></div>;
+                    }
                     return layers.map((layer, i) => this.renderLayer(
                         layer, i, 'ligand:' + layer.type,
                         v => this.run(() => Actions.setLigandLayerVisible(p, layer.type, v)),
                         () => this.run(() => Actions.removeLigandLayer(p, layer.type)),
                         a => this.setLigandAlphaDebounced(layer.type, a),
                         s => this.run(() => Actions.updateLigandLayerSize(p, layer.type, s)),
+                        {
+                            onSetColor: (theme, uniformColor) => this.run(async () => {
+                                await Actions.updateLigandLayerColor(p, layer.type, theme,
+                                    theme === 'uniform' ? { uniformColor: uniformColor ?? this.state.uniformColor } : undefined);
+                                this.forceUpdate();
+                            }),
+                        },
                     ));
                 })()}
             </Section>}
