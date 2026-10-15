@@ -8,12 +8,27 @@
             * { margin: 0; padding: 0; box-sizing: border-box; }
             html, body { width: 100%; height: 100%; overflow: hidden; }
             #app { position: absolute; left: 0; top: 0; right: 0; bottom: 0; }
+            /* 窗口变矮时缩小左侧图标；侧栏宽度不超过页面一半 */
+            .msp-layout-main { container-type: size; container-name: easy-canvas; }
+            .easy-viewport-controls {
+                --easy-vp-btn: min(44px, max(12px, calc((100cqh - 72px) / 7.2))) !important;
+                max-width: min(50cqw, 50%) !important;
+            }
+            .easy-vp-btn {
+                width: min(44px, max(12px, calc((100cqh - 72px) / 7.2))) !important;
+                height: min(44px, max(12px, calc((100cqh - 72px) / 7.2))) !important;
+            }
+            .easy-vp-btn svg { width: 64% !important; height: 64% !important; }
+            .msp-layout-left:has(.easy-panel) {
+                width: min(330px, 50dvw) !important;
+                max-width: 50dvw !important;
+            }
         </style>
         <link rel="stylesheet" type="text/css" href="molstar.css" />
     </head>
     <body>
         <div id="app"></div>
-        <script type="text/javascript" src="./molstar.js?v=20260405b"></script>
+        <script type="text/javascript" src="./molstar.js?v=20260421"></script>
         <script type="text/javascript">
             // 生成一个六元环配体的 PDB（HETATM），用于演示多配体输入
             function ringPdb(resName, cx, cy, cz, r) {
@@ -76,6 +91,86 @@
                 var mvsData = params.get('mvs-data');
                 if (mvsData) viewer.loadMvsData(mvsData, params.get('mvs-format') || 'mvsj');
             });
+        </script>
+        <script>
+            /* 页面变小时：侧栏宽度 ≤ 50%，图标缩小到整列都留在画面内 */
+            (function () {
+                var MAX = 44, MIN = 12;
+                function limits(tb) {
+                    var parent = tb.offsetParent || tb.parentElement || document.documentElement;
+                    var pr = parent.getBoundingClientRect();
+                    var bottom = Math.min(window.innerHeight, pr.bottom) - 8;
+                    var top = Math.max(0, pr.top) + 4;
+                    var width = Math.min(window.innerWidth, pr.width || window.innerWidth);
+                    return { bottom: bottom, avail: Math.max(0, bottom - top), maxW: width * 0.5 };
+                }
+                function paint(tb, btn, gap) {
+                    var buttons = tb.querySelectorAll('.easy-vp-btn');
+                    for (var i = 0; i < buttons.length; i++) {
+                        var b = buttons[i];
+                        if (b.classList.contains('easy-vp-btn-text')) {
+                            b.style.setProperty('height', (btn * 0.82) + 'px', 'important');
+                            b.style.setProperty('font-size', Math.max(10, btn * 0.3) + 'px', 'important');
+                        } else {
+                            b.style.setProperty('width', btn + 'px', 'important');
+                            b.style.setProperty('height', btn + 'px', 'important');
+                        }
+                        var svg = b.querySelector('svg');
+                        if (svg) {
+                            svg.style.setProperty('width', (btn * 0.64) + 'px', 'important');
+                            svg.style.setProperty('height', (btn * 0.64) + 'px', 'important');
+                        }
+                    }
+                    var cols = tb.querySelectorAll('.easy-viewport-controls-col');
+                    for (var c = 0; c < cols.length; c++) cols[c].style.setProperty('gap', gap + 'px', 'important');
+                    tb.style.setProperty('gap', gap + 'px', 'important');
+                }
+                function tick() {
+                    try {
+                    var tb0 = document.querySelector('.easy-viewport-controls');
+                    var view = tb0 ? limits(tb0) : { bottom: window.innerHeight - 36, avail: window.innerHeight - 48, maxW: window.innerWidth * 0.5 };
+                    var maxW = view.maxW;
+                    var left = document.querySelector('.msp-layout-left');
+                    if (left && left.querySelector('.easy-panel')) {
+                        left.style.setProperty('width', Math.min(330, maxW) + 'px', 'important');
+                        left.style.setProperty('max-width', maxW + 'px', 'important');
+                    }
+                    var tb = document.querySelector('.easy-viewport-controls');
+                    if (tb) {
+                        var col = tb.querySelector('.easy-viewport-controls-col');
+                        var rows = col ? col.querySelectorAll('.easy-vp-btn').length : 7;
+                        if (rows < 1) rows = 7;
+                        var last = col && col.querySelector('.easy-vp-btn:last-child');
+                        tb.style.setProperty('max-width', maxW + 'px', 'important');
+                        var btn = Math.min(MAX, Math.max(MIN, view.avail / (rows + 0.12 * (rows - 1))));
+                        var gap = Math.max(2, Math.min(6, btn * 0.12));
+                        var current = last ? parseFloat(last.style.width) : 0;
+                        var clipped = last && last.getBoundingClientRect().bottom > view.bottom;
+                        var tooWide = tb.getBoundingClientRect().width > maxW + 1;
+                        if (!current || Math.abs(current - btn) > 0.5 || clipped || tooWide) {
+                            paint(tb, btn, gap);
+                            var guard = 0;
+                            while (last && guard < 30 && last.getBoundingClientRect().bottom > view.bottom && btn > MIN) {
+                                btn = Math.max(MIN, btn - 1);
+                                gap = Math.max(2, Math.min(6, btn * 0.12));
+                                paint(tb, btn, gap);
+                                guard++;
+                            }
+                            while (guard < 40 && tb.getBoundingClientRect().width > maxW + 1 && btn > MIN) {
+                                btn = Math.max(MIN, btn - 1);
+                                gap = Math.max(2, Math.min(6, btn * 0.12));
+                                paint(tb, btn, gap);
+                                guard++;
+                            }
+                        }
+                    }
+                    } catch (err) { window.__easyFitErr = String(err && err.stack || err); }
+                }
+                tick();
+                setInterval(tick, 100);
+                window.addEventListener('resize', tick);
+                if (window.visualViewport) window.visualViewport.addEventListener('resize', tick);
+            })();
         </script>
     </body>
 </html>

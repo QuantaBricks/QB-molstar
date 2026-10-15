@@ -126,9 +126,16 @@ function specsFromComponentRefs(plugin: PluginContext, refs: (string | undefined
     return out;
 }
 
-function applySpanStyle(el: HTMLSpanElement, style: LabelStyle) {
-    const fontPx = Math.round(11 + style.scale * 10);
-    el.style.fontSize = `${fontPx}px`;
+/** 字号随相机 zoom（像素/世界单位）变化，zoom out 时文字缩小 */
+function labelFontPx(style: LabelStyle, zoom: number): number {
+    const world = 0.28 + style.scale * 0.48;
+    const px = world * (zoom > 0 ? zoom : 1);
+    return Math.max(4, Math.min(48, px));
+}
+
+function applySpanStyle(el: HTMLSpanElement, style: LabelStyle, zoom = 0) {
+    const fontPx = labelFontPx(style, zoom);
+    el.style.fontSize = `${fontPx.toFixed(1)}px`;
     el.style.fontWeight = '600';
     el.style.fontFamily = 'system-ui, -apple-system, "Segoe UI", sans-serif';
     el.style.color = `#${style.color.toString(16).padStart(6, '0')}`;
@@ -155,6 +162,7 @@ export class DomResidueLabelLayer {
     private raf = 0;
     private specs: DomLabelSpec[] = [];
     private spans = new Map<string, HTMLSpanElement>();
+    private lastFont = -1;
 
     constructor(private readonly plugin: PluginContext) {}
 
@@ -215,8 +223,8 @@ export class DomResidueLabelLayer {
     }
 
     refreshStyle() {
-        const style = getLabelStyle();
-        for (const el of this.spans.values()) applySpanStyle(el, style);
+        this.lastFont = -1;
+        this.applyZoomFont();
     }
 
     dispose() {
@@ -235,12 +243,13 @@ export class DomResidueLabelLayer {
                 this.spans.delete(id);
             }
         }
+        const zoom = this.plugin.canvas3d?.camera.zoom ?? 0;
         for (const s of this.specs) {
             let el = this.spans.get(s.id);
             if (!el) {
                 el = document.createElement('span');
                 el.textContent = s.text;
-                applySpanStyle(el, style);
+                applySpanStyle(el, style, zoom);
                 Object.assign(el.style, {
                     position: 'absolute',
                     transform: 'translate(-50%, -50%)',
@@ -259,6 +268,7 @@ export class DomResidueLabelLayer {
         if (!this.root) this.attach();
         if (!this.root) return;
         this.applyPanelClip();
+        this.applyZoomFont();
         if (this.spans.size === 0 && this.specs.length > 0) this.syncDomNodes();
         const canvas = viewCanvas(this.plugin);
         if (!canvas || canvas.clientWidth === 0 || canvas.clientHeight === 0) return;
@@ -274,6 +284,16 @@ export class DomResidueLabelLayer {
             el.style.left = `${p[0]}px`;
             el.style.top = `${p[1]}px`;
         }
+    }
+
+    private applyZoomFont() {
+        if (this.spans.size === 0) return;
+        const zoom = this.plugin.canvas3d?.camera.zoom ?? 0;
+        const style = getLabelStyle();
+        const px = labelFontPx(style, zoom);
+        if (Math.abs(px - this.lastFont) < 0.5) return;
+        this.lastFont = px;
+        for (const el of this.spans.values()) applySpanStyle(el, style, zoom);
     }
 
     private tick = () => {

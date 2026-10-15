@@ -133,6 +133,356 @@ const EASY_MODEL_TRAJ_BAR_STYLE = `
 }
 `;
 
+const EASY_VIEWER_STYLE_VERSION = '20260418-popup-above';
+/** 侧栏（工具条 + 设置面板）宽度不超过 canvas 的这一比例 */
+const EASY_SIDEBAR_MAX_RATIO = 0.5;
+const EASY_PANEL_MAX_PX = 330;
+const VP_BTN_MAX = 44;
+const VP_BTN_MIN = 10;
+const VP_ICON_ROWS_DEFAULT = 7;
+const VP_TOOLBAR_TOP = 8;
+const VP_TOOLBAR_SIDE = 8;
+const VP_CANVAS_BOTTOM_RESERVE = 40;
+
+type EasyCanvasSize = { w: number; h: number };
+
+function easyCanvasSize(plugin: { layout: { root?: HTMLElement | null } }, toolbarEl?: HTMLElement | null): EasyCanvasSize | undefined {
+    const root = plugin.layout.root;
+    const toolbar = toolbarEl ?? root?.querySelector('.easy-viewport-controls') as HTMLElement | null;
+    const main = toolbar?.closest('.msp-layout-main') as HTMLElement | null
+        ?? root?.querySelector('.msp-layout-main') as HTMLElement | null;
+    const viewport = main?.querySelector('.msp-viewport') as HTMLElement | null;
+    const app = document.getElementById('app');
+    const ws = [
+        viewport?.clientWidth, main?.clientWidth, root?.clientWidth, app?.clientWidth, window.innerWidth,
+    ].filter((x): x is number => typeof x === 'number' && x > 0);
+    const hs = [
+        viewport?.clientHeight, main?.clientHeight, root?.clientHeight, app?.clientHeight, window.innerHeight,
+    ].filter((x): x is number => typeof x === 'number' && x > 0);
+    if (ws.length === 0 || hs.length === 0) return undefined;
+    return { w: Math.min(...ws), h: Math.min(...hs) };
+}
+
+function applySidebarMaxWidthVars(plugin: { layout: { root?: HTMLElement | null } }, canvasW: number) {
+    const root = plugin.layout.root;
+    const host = root?.querySelector('.msp-plugin-content') as HTMLElement | null ?? root ?? null;
+    const maxW = canvasW * EASY_SIDEBAR_MAX_RATIO;
+    if (host) host.style.setProperty('--easy-sidebar-max-w', `${maxW}px`);
+    const left = root?.querySelector('.msp-layout-left') as HTMLElement | null;
+    if (left?.querySelector('.easy-panel')) {
+        left.style.width = `${Math.min(EASY_PANEL_MAX_PX, maxW)}px`;
+        left.style.maxWidth = `${maxW}px`;
+    }
+}
+
+function fitToolbarButtonSize(toolbar: HTMLElement | null | undefined, rows: number, canvas: EasyCanvasSize): { btn: number; gap: number } {
+    const sidebarMaxW = canvas.w * EASY_SIDEBAR_MAX_RATIO;
+    const usableH = Math.max(0, canvas.h - VP_TOOLBAR_TOP - VP_CANVAS_BOTTOM_RESERVE);
+    const gapRatio = 0.14;
+    const denom = rows + gapRatio * Math.max(0, rows - 1);
+
+    let btn = denom > 0 ? usableH / denom : VP_BTN_MAX;
+    btn = Math.min(VP_BTN_MAX, Math.max(VP_BTN_MIN, btn));
+    btn = Math.min(btn, Math.max(VP_BTN_MIN, sidebarMaxW - VP_TOOLBAR_SIDE * 2));
+    let gap = Math.min(6, Math.max(2, btn * gapRatio));
+
+    if (toolbar) toolbar.style.maxWidth = '';
+    return { btn, gap };
+}
+
+/** 窗口/容器尺寸变化：侧栏 ≤50% canvas，工具条图标等比例缩放 */
+export function syncEasySidebarLayout(
+    plugin: { layout: { root?: HTMLElement | null } },
+    toolbarEl?: HTMLElement | null,
+): { btn: number; gap: number; maxW: number } | undefined {
+    const canvas = easyCanvasSize(plugin, toolbarEl);
+    if (!canvas) return undefined;
+    applySidebarMaxWidthVars(plugin, canvas.w);
+    const sidebarMaxW = canvas.w * EASY_SIDEBAR_MAX_RATIO;
+
+    const root = plugin.layout.root;
+    const toolbar = toolbarEl ?? root?.querySelector('.easy-viewport-controls') as HTMLElement | null;
+    const col = toolbar?.querySelector('.easy-viewport-controls-col');
+    const rows = col?.querySelectorAll('.easy-vp-btn').length || VP_ICON_ROWS_DEFAULT;
+    const { btn, gap } = fitToolbarButtonSize(toolbar, rows, canvas);
+    return { btn, gap, maxW: sidebarMaxW };
+}
+
+/** @deprecated 请用 syncEasySidebarLayout */
+export function computeEasyViewportToolbarMetrics(
+    plugin: { layout: { root?: HTMLElement | null } },
+    toolbarEl?: HTMLElement | null,
+) {
+    const m = syncEasySidebarLayout(plugin, toolbarEl);
+    return m ? { btn: m.btn, gap: m.gap } : undefined;
+}
+
+export function installEasySidebarLayoutListeners(
+    plugin: { layout: { root?: HTMLElement | null; events: { updated: { subscribe: (fn: () => void) => { unsubscribe: () => void } } } } },
+    getToolbar: () => HTMLElement | null,
+    onToolbarMetrics?: (m: { btn: number; gap: number; maxW: number }) => void,
+) {
+    const run = () => {
+        const m = syncEasySidebarLayout(plugin, getToolbar());
+        if (m && onToolbarMetrics) onToolbarMetrics(m);
+        else if (!getToolbar()) syncEasySidebarLayout(plugin, null);
+    };
+    run();
+    const ro = new ResizeObserver(run);
+    const watched = new Set<Element>();
+    const attach = () => {
+        const root = plugin.layout.root;
+        for (const el of [root, root?.querySelector('.msp-layout-main'), root?.querySelector('.msp-viewport'), root?.querySelector('.msp-plugin-content'), getToolbar()]) {
+            if (el && !watched.has(el)) {
+                watched.add(el);
+                ro.observe(el);
+            }
+        }
+        run();
+    };
+    attach();
+    const subLayout = plugin.layout.events.updated.subscribe(attach);
+    window.addEventListener('resize', run);
+    const vv = window.visualViewport;
+    vv?.addEventListener('resize', run);
+    // 拖窗口时 resize 事件在部分宿主里不会到页面；每帧对比 canvas 尺寸，变了就重算
+    let lastKey = '';
+    let raf = 0;
+    const tick = () => {
+        const canvas = easyCanvasSize(plugin, getToolbar());
+        const key = canvas ? `${Math.round(canvas.w)}x${Math.round(canvas.h)}` : '';
+        if (key !== lastKey) {
+            lastKey = key;
+            run();
+        }
+        raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => {
+        cancelAnimationFrame(raf);
+        ro.disconnect();
+        subLayout.unsubscribe();
+        window.removeEventListener('resize', run);
+        vv?.removeEventListener('resize', run);
+    };
+}
+
+/** 全局样式：侧栏 + 视口左侧工具条（须在 EasyControls / EasyViewportControls 挂载时调用） */
+export function injectEasyViewerStyles() {
+    const existing = document.getElementById('easy-viewer-style');
+    if (existing?.getAttribute('data-easy-style-v') === EASY_VIEWER_STYLE_VERSION) return;
+    existing?.remove();
+    const style = document.createElement('style');
+    style.id = 'easy-viewer-style';
+    style.setAttribute('data-easy-style-v', EASY_VIEWER_STYLE_VERSION);
+    style.textContent = `
+            .msp-layout-main {
+                container-type: size;
+                container-name: easy-canvas;
+            }
+            /* 侧栏宽度不超过所在区域一半；图标按该区域高度缩小 */
+            .easy-panel { font-size: 14px; background: #f6f7f9; color: #374151; }
+            .easy-panel .msp-btn {
+                height: 32px; font-size: 14px; line-height: 1; padding: 0 10px;
+                background: #f3f4f6; border: 1px solid #e6e8ec; border-radius: 8px; color: #374151;
+            }
+            .easy-panel .msp-btn:hover { background: #e9ecf1; }
+            .easy-panel .msp-btn:disabled { opacity: 0.5; }
+            .easy-panel small { font-size: 13px; font-weight: 600; color: #6b7280; line-height: 1.2; }
+            .easy-section { margin-top: 12px; }
+            .easy-section-title {
+                display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
+                border: none; border-bottom: 1px solid #e8ebf0; background: transparent; cursor: pointer;
+                font-size: 16px; font-weight: 600; color: #1f2937; letter-spacing: 0.01em;
+                padding: 0 0 4px; margin: 0 0 6px;
+            }
+            .easy-section-title:hover { color: #1d4ed8; }
+            .easy-section-body { display: flex; flex-direction: column; gap: 4px; }
+            .easy-prop { border-top: 1px solid #f0f2f5; }
+            .easy-prop-head { display: flex; align-items: center; gap: 4px; width: 100%; border: none; background: transparent; cursor: pointer; padding: 3px 0; color: #6b7280; font-size: 13px; font-weight: 600; }
+            .easy-section-title svg { color: #6b7280; }
+            .easy-prop-head svg { color: #9ca3af; }
+            .easy-prop-body { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 2px 0 4px 14px; }
+            .easy-segmented { display: flex; gap: 2px; padding: 2px; background: #eef1f5; border-radius: 9px; }
+            .easy-seg {
+                flex: 1; height: 28px; border: none; background: transparent; border-radius: 7px;
+                font-size: 14px; color: #4b5563; cursor: pointer; padding: 0 8px; white-space: nowrap;
+            }
+            .easy-seg:hover { background: #e3e8ef; }
+            .easy-seg-active { background: #ffffff; color: #1d4ed8; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.12); }
+            .easy-seg-active:hover { background: #ffffff; }
+            .easy-icon-btn svg { width: 18px; height: 18px; }
+            .easy-icon-btn:hover { background: #eef1f5; color: #374151; }
+            .easy-file-row:hover { background: #f3f4f6; }
+            .easy-viewport-controls {
+                --easy-vp-btn: min(44px, max(12px, calc((100cqh - 72px) / 7.2)));
+                --easy-vp-gap: min(6px, max(2px, calc(var(--easy-vp-btn) * 0.12)));
+                position: absolute; top: 4px; left: 8px; z-index: 30;
+                display: flex; flex-direction: row; align-items: flex-start;
+                gap: var(--easy-vp-gap);
+                max-width: min(50cqw, 50dvw) !important;
+                box-sizing: border-box;
+            }
+            .easy-viewport-controls-col {
+                display: flex; flex-direction: column; align-items: flex-start;
+                gap: var(--easy-vp-gap);
+                max-height: 100%;
+            }
+            .easy-vp-btn {
+                display: flex; align-items: center; justify-content: center;
+                width: var(--easy-vp-btn) !important;
+                height: var(--easy-vp-btn) !important;
+                max-width: 100%;
+                padding: 0; cursor: pointer;
+                border: 1px solid #d1d5db;
+                border-radius: max(4px, calc(var(--easy-vp-btn) * 0.18));
+                background: rgba(255,255,255,0.92); color: #374151;
+                flex-shrink: 0;
+            }
+            .easy-vp-btn:hover { background: #eef2f7; }
+            .easy-vp-btn-active { box-shadow: inset 0 0 0 2px #3b82f6; color: #1d4ed8; }
+            .easy-vp-btn svg {
+                width: 64% !important;
+                height: 64% !important;
+            }
+            .easy-vp-btn-seq svg { overflow: visible; }
+            .easy-vp-btn-seq svg text {
+                font-size: 7px;
+                dominant-baseline: central;
+            }
+            .easy-vp-btn-text {
+                width: auto !important; max-width: 100%;
+                height: calc(var(--easy-vp-btn) * 0.82) !important;
+                padding: 0 calc(var(--easy-vp-btn) * 0.22);
+                font-size: max(10px, calc(var(--easy-vp-btn) * 0.3));
+            }
+            .easy-cancel-selection {
+                position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
+                z-index: 30; padding: 6px 16px; font-size: 15px; cursor: pointer;
+                border: 1px solid #d1d5db; border-radius: 8px;
+                background: rgba(255,255,255,0.95); color: #374151;
+                box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+            }
+            .easy-cancel-selection:hover { background: #eef2f7; }
+            .easy-lang-btn {
+                display: flex; align-items: center; justify-content: space-between; gap: 6px;
+                width: auto; padding: 4px 8px; font-size: 14px; color: #374151;
+                background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer;
+                white-space: nowrap; overflow: hidden;
+            }
+            .easy-lang-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+            .easy-lang-menu {
+                position: absolute; bottom: 100%; left: 0; margin-bottom: 4px;
+                min-width: 100%; width: max-content;
+                background: #fff; border: 1px solid #b8bec9; border-radius: 8px;
+                box-shadow: 0 4px 14px rgba(0,0,0,0.16); z-index: 40; overflow: hidden;
+            }
+            .easy-lang-item { padding: 6px 10px; font-size: 15px; color: #374151; cursor: pointer; }
+            .easy-lang-item:hover { background: #f3f4f6; }
+            .easy-lang-item-active { background: #eff6ff; color: #1d4ed8; font-weight: 700; }
+            .easy-print-panel {
+                position: absolute;
+                z-index: 50;
+                top: 8px; left: calc(var(--easy-vp-btn) + 16px);
+                width: min(340px, calc(50cqw - var(--easy-vp-btn) - 24px));
+                max-width: calc(100% - var(--easy-vp-btn) - 32px);
+                border-radius: 12px;
+                border: 1px solid #b8bec9;
+                background: #ffffff;
+                box-shadow: 0 4px 18px rgba(0,0,0,0.14);
+                overflow: hidden;
+            }
+            .easy-print-header {
+                display: flex; align-items: center; justify-content: space-between;
+                padding: 8px 12px;
+                border-bottom: 1px solid #e5e7eb;
+            }
+            .easy-print-header b { font-size: 16px; color: #1f2937; }
+            .easy-print-close {
+                border: none; background: transparent; cursor: pointer;
+                font-size: 30px; line-height: 1; color: #6b7280; padding: 0 4px;
+            }
+            .easy-print-close:hover { color: #111827; }
+            .easy-print-body { padding: 10px 12px; }
+            .easy-modal-overlay {
+                position: fixed; inset: 0; z-index: 100;
+                background: rgba(0,0,0,0.32);
+                display: flex; align-items: center; justify-content: center;
+            }
+            .easy-modal {
+                width: 460px;
+                max-width: calc(100vw - 40px);
+                border-radius: 14px;
+                border: 1px solid #b8bec9;
+                background: #ffffff;
+                box-shadow: 0 8px 30px rgba(0,0,0,0.24);
+                overflow: hidden;
+            }
+            .easy-modal .easy-print-header { padding: 14px 18px; }
+            .easy-modal .easy-print-header b { font-size: 20px; }
+            .easy-modal .msp-btn {
+                font-size: 18px;
+                height: auto;
+                line-height: 1.4;
+                padding: 12px 8px;
+                background: #f3f4f6 !important;
+                color: #1f2937 !important;
+                border: 1px solid #d1d5db;
+            }
+            .easy-modal .msp-btn:hover { background: #e5e7eb !important; }
+            .easy-print-panel .msp-image-preview { background: #ffffff !important; }
+            .easy-print-panel .msp-btn {
+                font-size: 15px;
+                height: auto;
+                line-height: 1.35;
+                padding: 5px 8px;
+                background: #f3f4f6 !important;
+                color: #1f2937 !important;
+                border: 1px solid #d1d5db;
+            }
+            .easy-print-panel .msp-btn:hover { background: #e5e7eb !important; }
+            .msp-viewport-top-left-controls { left: calc(var(--easy-vp-btn) + 16px) !important; }
+            .msp-sequence-wrapper { padding-bottom: 2px !important; }
+            .msp-sequence-wrapper-non-empty { font-size: 180% !important; line-height: 200% !important; }
+            .msp-sequence-wrapper .msp-sequence-residue { letter-spacing: 0.28em; }
+            .msp-highlight-info { font-size: 300% !important; color: #1e3a8a !important; }
+            .msp-layout-left:has(.easy-panel) {
+                width: min(330px, 50dvw) !important;
+                max-width: 50dvw !important;
+                box-sizing: border-box;
+            }
+            @media (orientation: landscape), (min-width: 1000px) {
+                .msp-layout-standard-reactive .msp-layout-left:has(.easy-panel),
+                .msp-layout-standard-landscape .msp-layout-left:has(.easy-panel) {
+                    background: transparent !important;
+                    border-right: none !important;
+                    pointer-events: none;
+                    z-index: 30;
+                }
+                .msp-layout-standard-reactive:has(.easy-panel) .msp-layout-main,
+                .msp-layout-standard-reactive:has(.easy-panel) .msp-layout-top,
+                .msp-layout-standard-reactive:has(.easy-panel) .msp-layout-bottom,
+                .msp-layout-standard-landscape:has(.easy-panel) .msp-layout-main,
+                .msp-layout-standard-landscape:has(.easy-panel) .msp-layout-top,
+                .msp-layout-standard-landscape:has(.easy-panel) .msp-layout-bottom { left: 0 !important; }
+                .msp-layout-standard-reactive .msp-layout-left:has(.easy-panel) .msp-layout-static,
+                .msp-layout-standard-landscape .msp-layout-left:has(.easy-panel) .msp-layout-static { background: transparent !important; }
+                .msp-layout-left .easy-panel {
+                    top: 2px !important; left: 6px !important; right: 6px !important; bottom: 2px !important;
+                    border-radius: 14px;
+                    background: rgba(246,247,249,0.94);
+                    -webkit-backdrop-filter: blur(8px);
+                    backdrop-filter: blur(8px);
+                    border: 1px solid #e8ebf0;
+                    pointer-events: auto;
+                    max-width: 100%;
+                    box-sizing: border-box;
+                }
+            }
+        `;
+    document.head.appendChild(style);
+}
+
 /** 视口：与默认视口一致，但没有多帧（trajectory）时隐藏动画控件 */
 export function EasyViewport() {
     const plugin = React.useContext(PluginReactContext);
@@ -174,7 +524,11 @@ export function EasyViewport() {
 }
 
 /** 视口控件：默认控件 + 仅传统界面下保留一个「简易界面」返回按钮 */
-const SeqSvg = () => <svg viewBox='0 0 24 24'><text x='12' y='16.5' textAnchor='middle' fontSize='8.5' fontWeight='700' fill='currentColor' fontFamily='Inter, sans-serif'>SEQ</text></svg>;
+const SeqSvg = () => (
+    <svg viewBox='0 0 24 24' aria-hidden>
+        <text x='12' y='12' textAnchor='middle' dominantBaseline='central' fontWeight='700' fill='currentColor' fontFamily='Inter, sans-serif' fontSize='7'>SEQ</text>
+    </svg>
+);
 const InfoSvg = () => <svg viewBox='0 0 24 24'><path fill='currentColor' d='M12 2a10 10 0 100 20 10 10 0 000-20zm1 15h-2v-6h2v6zm0-8h-2V7h2v2z' /></svg>;
 const FileSvg = () => <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'><path d='M14 2H6a2 2 0 00-2 2v16a2 2 0 002 2h12a2 2 0 002-2V8z' /><polyline points='14 2 14 8 20 8' /></svg>;
 const EyeSvg = () => <svg viewBox='0 0 24 24' fill='none' stroke='currentColor' strokeWidth='2' strokeLinecap='round' strokeLinejoin='round'><path d='M1 12s4-7 11-7 11 7 11 7-4 7-11 7-11-7-11-7z' /><circle cx='12' cy='12' r='3' /></svg>;
@@ -309,6 +663,8 @@ export function EasyTrajectoryOnlyViewportControls() {
 
 export function EasyViewportControls() {
     const plugin = React.useContext(PluginReactContext);
+    const vpToolbarRef = React.useRef<HTMLDivElement | null>(null);
+    React.useLayoutEffect(() => { injectEasyViewerStyles(); }, []);
     const classic = React.useSyncExternalStore(Actions.subscribeClassicMode, Actions.isClassicMode);
     const locale = React.useSyncExternalStore(I18n.subscribeLocale, I18n.getLocale);
     const [panelVisible, setPanelVisible] = React.useState(() => Actions.isPanelVisible(plugin));
@@ -333,6 +689,16 @@ export function EasyViewportControls() {
     const [hMode, setHMode] = React.useState<Actions.HydrogenMode>(() => Actions.getHydrogenMode());
     const [hMenuOpen, setHMenuOpen] = React.useState(false);
     const targetedChain = React.useSyncExternalStore(Actions.subscribeTargetedChain, Actions.getTargetedChain);
+
+    React.useLayoutEffect(() => {
+        if (panelVisible) return undefined;
+        return installEasySidebarLayoutListeners(plugin, () => vpToolbarRef.current);
+    }, [plugin, panelVisible, classic, hasWater, hasSymm, hasH, phPoints.length]);
+
+    React.useLayoutEffect(() => {
+        if (!panelVisible) return undefined;
+        return installEasySidebarLayoutListeners(plugin, () => null);
+    }, [plugin, panelVisible]);
 
     const openFile = (mode: 'new' | 'add') => {
         openFileMode.current = mode;
@@ -386,44 +752,40 @@ export function EasyViewportControls() {
         return () => sub.unsubscribe();
     }, [plugin]);
 
-    const button = (svg: React.ReactNode, title: string, onClick: () => void, active = false) =>
-        <button className={'easy-vp-btn' + (active ? ' easy-vp-btn-active' : '')} title={title} onClick={onClick}>{svg}</button>;
+    const button = (svg: React.ReactNode, title: string, onClick: () => void, active = false, extraClass = '') =>
+        <button className={'easy-vp-btn' + extraClass + (active ? ' easy-vp-btn-active' : '')} title={title} onClick={onClick}>{svg}</button>;
+
+    const textButton = (label: React.ReactNode, title: string, onClick: () => void, active = false) =>
+        <button className={'easy-vp-btn easy-vp-btn-text' + (active ? ' easy-vp-btn-active' : '')} title={title} onClick={onClick}>{label}</button>;
 
     return <>
         <style>{EASY_MODEL_TRAJ_BAR_STYLE}</style>
         <div className='easy-model-traj-bar'>
             <TrajectoryViewportControls />
         </div>
-        {!panelVisible && <div className='easy-viewport-controls' style={{ flexDirection: 'row', alignItems: 'flex-start' }}>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'flex-start' }}>
+        {!panelVisible && <div className='easy-viewport-controls' ref={el => { vpToolbarRef.current = el; }}>
+            <div className='easy-viewport-controls-col'>
                 {button(<FileSvg />, I18n.t('openFile'), onOpenClick)}
                 {button(<CameraOutlinedSvg />, I18n.t('exportImage'), () => setPrintExpanded(v => !v), printExpanded)}
                 {button(<TuneSvg />, I18n.t('setting'), () => Actions.setPanelVisible(plugin, true))}
-                {button(<SeqSvg />, I18n.t('sequence'), () => Actions.setSequenceVisible(plugin, !sequenceVisible), sequenceVisible)}
+                {button(<SeqSvg />, I18n.t('sequence'), () => Actions.setSequenceVisible(plugin, !sequenceVisible), sequenceVisible, ' easy-vp-btn-seq')}
                 {button(<SelectionModeSvg />, I18n.t('selection'), () => { plugin.selectionMode = !plugin.selectionMode; }, selectionMode)}
                 {button(<AutorenewSvg />, I18n.t('reset'), () => Actions.resetCamera(plugin))}
                 {button(<InfoSvg />, I18n.t('about'), () => setInfoOpen(v => !v), infoOpen)}
-                {classic && <button className='easy-vp-btn easy-vp-btn-text'
-                    title={locale === 'zh' ? '切换回简易界面' : locale === 'ja' ? 'シンプルUIに戻る' : 'Switch back to simple UI'}
-                    onClick={() => Actions.toggleClassicMode(plugin)}>{I18n.t('simple')}</button>}
+                {classic && textButton(I18n.t('simple'),
+                    locale === 'zh' ? '切换回简易界面' : locale === 'ja' ? 'シンプルUIに戻る' : 'Switch back to simple UI',
+                    () => Actions.toggleClassicMode(plugin))}
             </div>
-            <div style={{ display: 'flex', flexDirection: 'column', gap: 6, alignItems: 'stretch' }}>
-                {phPoints.length > 0 && <button
-                    className={'easy-vp-btn easy-vp-btn-text' + (phOpen ? ' easy-vp-btn-active' : '')}
-                    title={I18n.t('pharmacophore')}
-                    onClick={() => setPhOpen(v => !v)}>{I18n.t('pharmacophore')}</button>}
-                {hasWater && <button
-                    className={'easy-vp-btn easy-vp-btn-text' + (waterVisible ? ' easy-vp-btn-active' : '')}
-                    title={I18n.t('water')}
-                    onClick={() => { const v = !waterVisible; setWaterVisible(v); Actions.setWaterVisible(plugin, v); }}>{I18n.t('water')}</button>}
-                {hasSymm && <button
-                    className={'easy-vp-btn easy-vp-btn-text' + (symmExpanded ? ' easy-vp-btn-active' : '')}
-                    title={I18n.t('symmetry')}
-                    onClick={() => { void Actions.toggleSymmetry(plugin).then(ok => { if (ok) setHasSymm(Actions.hasSymmetry(plugin)); }); }}>{I18n.t('symmetry')}</button>}
+            <div className='easy-viewport-controls-col' style={{ alignItems: 'stretch' }}>
+                {phPoints.length > 0 && textButton(I18n.t('pharmacophore'), I18n.t('pharmacophore'), () => setPhOpen(v => !v), phOpen)}
+                {hasWater && textButton(I18n.t('water'), I18n.t('water'), () => {
+                    const v = !waterVisible; setWaterVisible(v); Actions.setWaterVisible(plugin, v);
+                }, waterVisible)}
+                {hasSymm && textButton(I18n.t('symmetry'), I18n.t('symmetry'), () => {
+                    void Actions.toggleSymmetry(plugin).then(ok => { if (ok) setHasSymm(Actions.hasSymmetry(plugin)); });
+                }, symmExpanded)}
                 {hasH && <div style={{ position: 'relative' }}>
-                    <button className={'easy-vp-btn easy-vp-btn-text' + (hMode !== 'none' ? ' easy-vp-btn-active' : '')}
-                        title={I18n.t('polarHydrogen')}
-                        onClick={() => setHMenuOpen(v => !v)}>H</button>
+                    {textButton('H', I18n.t('polarHydrogen'), () => setHMenuOpen(v => !v), hMode !== 'none')}
                     {hMenuOpen && <div className='easy-lang-menu' style={{ top: '100%', bottom: 'auto', marginTop: 4, marginBottom: 0 }}>
                         {([['polar', I18n.t('polarHydrogen')], ['all', I18n.t('allHydrogen')], ['none', I18n.t('noHydrogen')]] as [Actions.HydrogenMode, string][]).map(([m, label]) =>
                             <div key={m} className={'easy-lang-item' + (hMode === m ? ' easy-lang-item-active' : '')}
@@ -573,8 +935,11 @@ export class EasyControls extends PluginUIComponent<{}, {
         });
     };
 
+    private sidebarLayoutCleanup?: () => void;
+
     componentDidMount() {
         this.injectStyle();
+        this.sidebarLayoutCleanup = installEasySidebarLayoutListeners(this.plugin, () => null);
         this.refreshChains();
         this.setState({ lightIntensity: Actions.getLightIntensity(this.plugin) });
         this.activeSub = Actions.subscribeActiveStructure(this.scheduleUpdate);
@@ -610,6 +975,7 @@ export class EasyControls extends PluginUIComponent<{}, {
 
     componentWillUnmount() {
         super.componentWillUnmount();
+        this.sidebarLayoutCleanup?.();
         this.targetedSub?.();
         this.activeSub?.();
     }
@@ -622,169 +988,7 @@ export class EasyControls extends PluginUIComponent<{}, {
 
     /** 放大侧栏字号（给老人看），只作用于本面板 */
     private injectStyle() {
-        if (document.getElementById('easy-viewer-style')) return;
-        const style = document.createElement('style');
-        style.id = 'easy-viewer-style';
-        style.textContent = `
-            .easy-panel { font-size: 14px; background: #f6f7f9; color: #374151; }
-            .easy-panel .msp-btn {
-                height: 32px; font-size: 14px; line-height: 1; padding: 0 10px;
-                background: #f3f4f6; border: 1px solid #e6e8ec; border-radius: 8px; color: #374151;
-            }
-            .easy-panel .msp-btn:hover { background: #e9ecf1; }
-            .easy-panel .msp-btn:disabled { opacity: 0.5; }
-            .easy-panel small { font-size: 13px; font-weight: 600; color: #6b7280; line-height: 1.2; }
-            .easy-section { margin-top: 12px; }
-            .easy-section-title {
-                display: flex; align-items: center; gap: 6px; width: 100%; text-align: left;
-                border: none; border-bottom: 1px solid #e8ebf0; background: transparent; cursor: pointer;
-                font-size: 16px; font-weight: 600; color: #1f2937; letter-spacing: 0.01em;
-                padding: 0 0 4px; margin: 0 0 6px;
-            }
-            .easy-section-title:hover { color: #1d4ed8; }
-            .easy-section-body { display: flex; flex-direction: column; gap: 4px; }
-            .easy-prop { border-top: 1px solid #f0f2f5; }
-            .easy-prop-head { display: flex; align-items: center; gap: 4px; width: 100%; border: none; background: transparent; cursor: pointer; padding: 3px 0; color: #6b7280; font-size: 13px; font-weight: 600; }
-            .easy-section-title svg { color: #6b7280; }
-            .easy-prop-head svg { color: #9ca3af; }
-            .easy-prop-body { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; padding: 2px 0 4px 14px; }
-            .easy-segmented { display: flex; gap: 2px; padding: 2px; background: #eef1f5; border-radius: 9px; }
-            .easy-seg {
-                flex: 1; height: 28px; border: none; background: transparent; border-radius: 7px;
-                font-size: 14px; color: #4b5563; cursor: pointer; padding: 0 8px; white-space: nowrap;
-            }
-            .easy-seg:hover { background: #e3e8ef; }
-            .easy-seg-active { background: #ffffff; color: #1d4ed8; font-weight: 600; box-shadow: 0 1px 2px rgba(0,0,0,0.12); }
-            .easy-seg-active:hover { background: #ffffff; }
-            .easy-icon-btn svg { width: 18px; height: 18px; }
-            .easy-icon-btn:hover { background: #eef1f5; color: #374151; }
-            .easy-file-row:hover { background: #f3f4f6; }
-            .easy-viewport-controls {
-                position: absolute; top: 8px; left: 8px; z-index: 30;
-                display: flex; flex-direction: column; gap: 6px; align-items: flex-start;
-            }
-            .easy-vp-btn {
-                display: flex; align-items: center; justify-content: center;
-                width: 44px; height: 44px; padding: 0; cursor: pointer;
-                border: 1px solid #d1d5db; border-radius: 8px;
-                background: rgba(255,255,255,0.92); color: #374151;
-            }
-            .easy-vp-btn:hover { background: #eef2f7; }
-            .easy-vp-btn-active { box-shadow: inset 0 0 0 2px #3b82f6; color: #1d4ed8; }
-            .easy-vp-btn svg { width: 28px; height: 28px; }
-            .easy-vp-btn-text { width: auto; height: 36px; padding: 0 10px; font-size: 13px; }
-            .easy-cancel-selection {
-                position: absolute; bottom: 16px; left: 50%; transform: translateX(-50%);
-                z-index: 30; padding: 6px 16px; font-size: 15px; cursor: pointer;
-                border: 1px solid #d1d5db; border-radius: 8px;
-                background: rgba(255,255,255,0.95); color: #374151;
-                box-shadow: 0 2px 8px rgba(0,0,0,0.12);
-            }
-            .easy-cancel-selection:hover { background: #eef2f7; }
-            .easy-lang-btn {
-                display: flex; align-items: center; justify-content: space-between; gap: 6px;
-                width: auto; padding: 4px 8px; font-size: 14px; color: #374151;
-                background: #fff; border: 1px solid #cbd5e1; border-radius: 6px; cursor: pointer;
-                white-space: nowrap; overflow: hidden;
-            }
-            .easy-lang-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-            .easy-lang-menu {
-                position: absolute; bottom: 100%; left: 0; margin-bottom: 4px;
-                min-width: 100%; width: max-content;
-                background: #fff; border: 1px solid #b8bec9; border-radius: 8px;
-                box-shadow: 0 4px 14px rgba(0,0,0,0.16); z-index: 40; overflow: hidden;
-            }
-            .easy-lang-item { padding: 6px 10px; font-size: 15px; color: #374151; cursor: pointer; }
-            .easy-lang-item:hover { background: #f3f4f6; }
-            .easy-lang-item-active { background: #eff6ff; color: #1d4ed8; font-weight: 700; }
-            .easy-print-panel {
-                position: absolute;
-                top: 8px; left: 60px;
-                width: 340px;
-                border-radius: 12px;
-                border: 1px solid #b8bec9;
-                background: #ffffff;
-                box-shadow: 0 4px 18px rgba(0,0,0,0.14);
-                overflow: hidden;
-            }
-            .easy-print-header {
-                display: flex; align-items: center; justify-content: space-between;
-                padding: 8px 12px;
-                border-bottom: 1px solid #e5e7eb;
-            }
-            .easy-print-header b { font-size: 16px; color: #1f2937; }
-            .easy-print-close {
-                border: none; background: transparent; cursor: pointer;
-                font-size: 30px; line-height: 1; color: #6b7280; padding: 0 4px;
-            }
-            .easy-print-close:hover { color: #111827; }
-            .easy-print-body { padding: 10px 12px; }
-            .easy-modal-overlay {
-                position: fixed; inset: 0; z-index: 100;
-                background: rgba(0,0,0,0.32);
-                display: flex; align-items: center; justify-content: center;
-            }
-            .easy-modal {
-                width: 460px;
-                max-width: calc(100vw - 40px);
-                border-radius: 14px;
-                border: 1px solid #b8bec9;
-                background: #ffffff;
-                box-shadow: 0 8px 30px rgba(0,0,0,0.24);
-                overflow: hidden;
-            }
-            .easy-modal .easy-print-header { padding: 14px 18px; }
-            .easy-modal .easy-print-header b { font-size: 20px; }
-            .easy-modal .msp-btn {
-                font-size: 18px;
-                height: auto;
-                line-height: 1.4;
-                padding: 12px 8px;
-                background: #f3f4f6 !important;
-                color: #1f2937 !important;
-                border: 1px solid #d1d5db;
-            }
-            .easy-modal .msp-btn:hover { background: #e5e7eb !important; }
-            .easy-print-panel .msp-image-preview { background: #ffffff !important; }
-            .easy-print-panel .msp-btn {
-                font-size: 15px;
-                height: auto;
-                line-height: 1.35;
-                padding: 5px 8px;
-                background: #f3f4f6 !important;
-                color: #1f2937 !important;
-                border: 1px solid #d1d5db;
-            }
-            .easy-print-panel .msp-btn:hover { background: #e5e7eb !important; }
-            .msp-viewport-top-left-controls { left: 60px !important; }
-            .msp-sequence-wrapper { padding-bottom: 2px !important; }
-            .msp-sequence-wrapper-non-empty { font-size: 180% !important; line-height: 200% !important; }
-            .msp-sequence-wrapper .msp-sequence-residue { letter-spacing: 0.28em; }
-            .msp-highlight-info { font-size: 300% !important; color: #1e3a8a !important; }
-            @media (orientation: landscape), (min-width: 1000px) {
-                .msp-layout-standard-reactive .msp-layout-left:has(.easy-panel) {
-                    width: 330px !important;
-                    background: transparent !important;
-                    border-right: none !important;
-                    pointer-events: none;
-                    z-index: 30;
-                }
-                .msp-layout-standard-reactive:has(.easy-panel) .msp-layout-main,
-                .msp-layout-standard-reactive:has(.easy-panel) .msp-layout-top,
-                .msp-layout-standard-reactive:has(.easy-panel) .msp-layout-bottom { left: 0 !important; }
-                .msp-layout-standard-reactive .msp-layout-left:has(.easy-panel) .msp-layout-static { background: transparent !important; }
-                .msp-layout-standard-reactive .msp-layout-left .easy-panel {
-                    top: 2px !important; left: 6px !important; right: 6px !important; bottom: 2px !important;
-                    border-radius: 14px;
-                    background: rgba(246,247,249,0.94);
-                    -webkit-backdrop-filter: blur(8px);
-                    backdrop-filter: blur(8px);
-                    border: 1px solid #e8ebf0;
-                    pointer-events: auto;
-                }
-            }
-        `;
-        document.head.appendChild(style);
+        injectEasyViewerStyles();
     }
 
     private refreshChains() {

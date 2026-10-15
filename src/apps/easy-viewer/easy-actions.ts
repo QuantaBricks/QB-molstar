@@ -1381,11 +1381,11 @@ export async function setIllustrative(plugin: PluginContext, on: boolean, materi
     await applyAtomShading(plugin);
 
     if (!plugin.canvas3d) return;
-    // 明暗通道（遮蔽 SSAO）默认开，描边默认开
+    // 描边默认开，遮蔽（SSAO）默认关
     plugin.canvas3d.setProps({
         postprocessing: {
             outline: { name: 'on', params: OutlineOnParams },
-            occlusion: { name: 'on', params: CheapOcclusionParams },
+            occlusion: { name: 'off', params: {} },
             shadow: { name: 'off', params: {} },
         },
     });
